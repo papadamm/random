@@ -59,9 +59,6 @@ Disassembly of section .data:
  113:	20 24                	and    BYTE PTR [si],ah
 ```
 
-Note that the assembler is unaware that 0x10d should be treated as data.
-
-
 Compare the disassembly above with the actual source code:
 ```console
 % cat DISPMSG.ASM
@@ -82,3 +79,5 @@ msg     db      'hejsan $'
 
 end start
 ```
+
+Note that the disassembler is unaware that 0x10d should be treated as data.
