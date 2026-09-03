@@ -12,21 +12,27 @@ To use U-Boot on GR-Peach two connections are required:
 Upstream GR-PEACH is using P6_2 and P6_3 for console by default.
 
 This is how to make use of minicom on Mac OS X:
+```console
 % minicom -b 115200 -D /dev/tty.usbmodem141202
+```
 
 In a separate terminal OpenOCD (version 0.12.0) is started like
 this in case a SEGGER J-Link debugger is used:
+```console
 % openocd -f interface/jlink.cfg -c "transport select jtag" \
   -f target/renesas_r7s72100.cfg -c "adapter speed 50000"
+```
 
 Then in a third terminal the following OpenOCD commands may be used
 to load U-Boot to on-chip memory and start it from there:
+```console
 % telnet localhost 4444
 > reset_config srst_only
 > reset halt
 > load_image u-boot-gr-peach-onchip-ram-boot-v2025.04-rc2-20250214.bin 0x20100000
 > arm core_state arm
 > resume 0x20100000
+```
 
 Now serial console output from U-Boot should end up on the minicom terminal.
 
