@@ -204,10 +204,10 @@ static int encode_54d(void (*encode_single)(uint8_t byte))
     char_nr ^= 0x01;
   }
 
-  if (encode_single) {
-    encode_single(prev_data);
-  } else {
-    if (char_nr != 0) {
+  if (char_nr != 0) {
+    if (encode_single) {
+      encode_single(prev_data);
+    } else {
       fprintf(stderr, "uneven amount of input characters to encode as 54\n");
       return 1;
     }
