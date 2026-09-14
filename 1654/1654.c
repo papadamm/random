@@ -78,17 +78,17 @@ static int decode_hex(void)
       prev_data = decode_hex_char(in_buf[0]);
     } else {
       if (prev_data >= 0) {
-	this_data = decode_hex_char(in_buf[0]);
-	if (this_data >= 0) {
-	  out_buf[0] = (prev_data << 4) | this_data;
-	  fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
-	} else {
-	  fprintf(stderr, "unable to decode the lower nibble hex character\n");
-	  return 1;
-	}
+        this_data = decode_hex_char(in_buf[0]);
+        if (this_data >= 0) {
+          out_buf[0] = (prev_data << 4) | this_data;
+          fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+        } else {
+          fprintf(stderr, "unable to decode the lower nibble hex character\n");
+          return 1;
+        }
       } else {
-	fprintf(stderr, "unable to decode the upper nibble hex character\n");
-	return 1;
+        fprintf(stderr, "unable to decode the upper nibble hex character\n");
+        return 1;
       }
     }
     high_nibble ^= 0x01;
@@ -98,7 +98,7 @@ static int decode_hex(void)
     fprintf(stderr, "uneven amount of hex character\n");
     return 1;
   }
-  
+
   return 0;
 }
 
@@ -139,14 +139,14 @@ static int calculate_54s_crc(uint8_t v1, uint8_t v2)
 static void encode_54s_byte(uint8_t byte, int oob)
 {
   uint8_t msv, v1, crc, v2;
-    
+
   v2 = byte % 54;
   msv = byte / 54;
-    
+
   v1 = encode_54s_v1(msv, oob, 0, 0); /* mode = 0, two char single mode */
   crc = calculate_54s_crc(v1, v2) & 0x01;
   v1 = encode_54s_v1(msv, oob, crc, 0);
-    
+
   printf("%c", encode_54_char(v1));
   printf("%c", encode_54_char(v2));
 }
@@ -193,9 +193,9 @@ static int encode_54d(void (*encode_single)(uint8_t byte))
       tmp = tmp16 / 54;
       v2 = tmp % 54;
       msv = tmp / 54;
-      
+
       v1 = encode_54d_v1(msv, 0, 0, 1); /* mode = 1, three char dual mode */
-    
+
       printf("%c", encode_54_char(v1));
       printf("%c", encode_54_char(v2));
       printf("%c", encode_54_char(v3));
@@ -212,7 +212,7 @@ static int encode_54d(void (*encode_single)(uint8_t byte))
       return 1;
     }
   }
-  
+
   return 0;
 }
 
@@ -231,7 +231,7 @@ static int decode_54_char(int ch)
 
 /* decode single 54 and/or dual 54 depending on flags */
 static int decode_54(int allow_single, int allow_dual,
-		     void (*put_oob)(void *oob_data, int v), void *oob_data)
+                     void (*put_oob)(void *oob_data, int v), void *oob_data)
 {
   uint8_t in_buf[1];
   uint8_t out_buf[1];
@@ -250,53 +250,53 @@ static int decode_54(int allow_single, int allow_dual,
       v2 = decode_54_char(in_buf[0]);
 
       if ((v1 < 0) || (v2 < 0)) {
-	fprintf(stderr, "unknown first or second 54 characters\n");
-	return 1;
+        fprintf(stderr, "unknown first or second 54 characters\n");
+        return 1;
       }
 
       if ((v1 & (1 << 0)) == 0) { /* mode == 0 (single mode) */
-	if (allow_single) {
-	  crc = calculate_54s_crc(v1 & 0xfd, v2); /* omit CRC bit */
-	  if (((v1 & (1 << 1)) >> 1) != (crc & 0x01)) {
-	    fprintf(stderr, "crc mismatch\n");
-	    return 1;
-	  }
+        if (allow_single) {
+          crc = calculate_54s_crc(v1 & 0xfd, v2); /* omit CRC bit */
+          if (((v1 & (1 << 1)) >> 1) != (crc & 0x01)) {
+            fprintf(stderr, "crc mismatch\n");
+            return 1;
+          }
 
-	  if (put_oob) {
-	    put_oob(oob_data, (v1 * (1 << 2) >> 2));
-	  }
+          if (put_oob) {
+            put_oob(oob_data, (v1 * (1 << 2) >> 2));
+          }
 
-	  /* most significant value is stored in the first character */
-	  out_buf[0] = ((v1 >> 3) * 54) + v2;
-	  fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
-	} else {
-	  fprintf(stderr, "unable to decode second 54 character\n");
-	  return 1;
+          /* most significant value is stored in the first character */
+          out_buf[0] = ((v1 >> 3) * 54) + v2;
+          fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+        } else {
+          fprintf(stderr, "unable to decode second 54 character\n");
+          return 1;
 	}
-	
-	char_nr = 0;
+
+        char_nr = 0;
       } else {
-	char_nr++;
+        char_nr++;
       }
     } else if (char_nr == 2) {
 
       if (allow_dual) {
-	v3 = decode_54_char(in_buf[0]);
+        v3 = decode_54_char(in_buf[0]);
 
-	if (v3 < 0) {
-	  fprintf(stderr, "unknown third 54 character\n");
-	  return 1;
-	}
-      
-	tmp16 = ((v1 >> 1) * 54 * 54) + (v2 * 54) + v3;
-	out_buf[0] = tmp16 >> 8;
-	fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
-	out_buf[0] = tmp16 & 0xff;
-	fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
-	char_nr = 0;
+        if (v3 < 0) {
+          fprintf(stderr, "unknown third 54 character\n");
+          return 1;
+        }
+
+        tmp16 = ((v1 >> 1) * 54 * 54) + (v2 * 54) + v3;
+        out_buf[0] = tmp16 >> 8;
+        fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+        out_buf[0] = tmp16 & 0xff;
+        fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+        char_nr = 0;
       } else {
-	fprintf(stderr, "unable to decode third 54 character\n");
-	return 1;
+        fprintf(stderr, "unable to decode third 54 character\n");
+        return 1;
       }
     }
   }
@@ -305,7 +305,7 @@ static int decode_54(int allow_single, int allow_dual,
     fprintf(stderr, "uneven amount of 54 characters to decode\n");
     return 1;
   }
-  
+
   return 0;
 }
 
