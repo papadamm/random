@@ -2,8 +2,10 @@
 # simple test to go through 256 bytes of input data for each encoder/decoder
 #
 # TODO to harden and extend test coverage:
-# - test robustness of dual mode CRC by emulating character drop on the link
-# - consider testing the dual mode OOB data
+# - test uneven input data to the decoders
+# - test uneven input data lengths to trigger 54 dual mode encoder errors
+# - test robustness of single mode CRC by emulating character drop on the link
+# - consider testing the single mode OOB data
 # - for the msv portion some characters might not end up being used, test those
 
 hex_tests="encode-x16:decode-xX16 encode-X16:decode-xX16"
