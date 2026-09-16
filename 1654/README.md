@@ -21,6 +21,16 @@ encode-54d:decode-54ds PASS
 %
 ```
 
+Quick tutorial for Base54:
+```console
+% echo "hello" | ./1654 encode-54s
+Q^O@YGWGWJIQ%
+% echo "hello" | ./1654 encode-54d
+ZO]ZoGZ(i%
+% echo -n "hello again" | ./1654 encode-54ds
+ZO]ZoGZ(.Xp)Xp-YI%
+```
+
 # Base54:
 
 The 1654 tool implements Base54 with a 54 letter character set which is a subset of ASCII. It does this together with a particular encoding format with two different modes of operation. The Base54 design means in practice using 5.6875 bits per character. This in turn allows for three extra bits when encoding 8 bits of input data and 1 extra bit when encoding 16 bits of input data.
