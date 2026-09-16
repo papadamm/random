@@ -263,7 +263,7 @@ static int decode_54(int allow_single, int allow_dual,
           }
 
           if (put_oob) {
-            put_oob(oob_data, (v1 * (1 << 2) >> 2));
+            put_oob(oob_data, (v1 & (1 << 2)) >> 2);
           }
 
           /* most significant value is stored in the first character */
