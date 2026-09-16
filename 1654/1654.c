@@ -120,10 +120,10 @@ static uint8_t encode_54d_v1(uint8_t msv, int oob, int crc, int mode)
   return (msv << 1) | (mode << 0);
 }
 
-static int calculate_54s_crc(uint8_t v1, uint8_t v2)
+static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 {
-  uint16_t data_in = (v2 << 8) | (v1 << 0);
-  uint8_t cnt = 0;
+  uint32_t data_in = (prev << 16) | (curr << 8) | (next << 0);
+  int cnt = 0;
 
   /* highly unoptimized hamming weight (replace with one processor opcode) */
   while (data_in) {
@@ -133,33 +133,32 @@ static int calculate_54s_crc(uint8_t v1, uint8_t v2)
     data_in >>= 1;
   }
 
-  return cnt;
+  return !(cnt & 0x01);
 }
 
-static void encode_54s_byte(uint8_t byte, int oob)
+static uint8_t encode_54s_byte(uint8_t byte, uint8_t v0, int oob)
 {
-  uint8_t msv, v1, crc, v2;
+  uint8_t msv, v1, v2;
+  int crc;
 
   v2 = byte % 54;
   msv = byte / 54;
 
   v1 = encode_54s_v1(msv, oob, 0, 0); /* mode = 0, two char single mode */
-  crc = calculate_54s_crc(v1, v2) & 0x01;
+  crc = calculate_54s_crc(v0, v1, v2);
   v1 = encode_54s_v1(msv, oob, crc, 0);
 
   printf("%c", encode_54_char(v1));
   printf("%c", encode_54_char(v2));
-}
 
-static void encode_54s_byte_no_oob(uint8_t byte)
-{
-  encode_54s_byte(byte, 0);
+  return v2;
 }
 
 /* encode binary input stream to single mode 54 ASCII character output */
 static int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
 {
   uint8_t buf[1];
+  uint8_t v0 = 0;
   int oob = 0;
 
   while (fread(&buf[0], sizeof(buf[0]), 1, stdin)) {
@@ -167,20 +166,21 @@ static int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
       oob = get_oob(oob_data);
     }
 
-    encode_54s_byte(buf[0], oob);
+    v0 = encode_54s_byte(buf[0], v0, oob);
   }
 
   return 0;
 }
 
 /* encode binary input stream to dual mode 54 ASCII character output */
-static int encode_54d(void (*encode_single)(uint8_t byte))
+static int encode_54d(int allow_single)
 {
   uint8_t buf[1];
   int char_nr = 0;
   int prev_data = 0;
   uint16_t tmp16, tmp;
   uint8_t msv, v1, v2, v3;
+  uint8_t v0 = 0;
 
   while (fread(&buf[0], sizeof(buf[0]), 1, stdin)) {
     if (char_nr == 0) {
@@ -199,14 +199,16 @@ static int encode_54d(void (*encode_single)(uint8_t byte))
       printf("%c", encode_54_char(v1));
       printf("%c", encode_54_char(v2));
       printf("%c", encode_54_char(v3));
+
+      v0 = v3;
     }
 
     char_nr ^= 0x01;
   }
 
   if (char_nr != 0) {
-    if (encode_single) {
-      encode_single(prev_data);
+    if (allow_single) {
+      encode_54s_byte(prev_data, v0, 0);
     } else {
       fprintf(stderr, "uneven amount of input characters to encode as 54\n");
       return 1;
@@ -236,11 +238,12 @@ static int decode_54(int allow_single, int allow_dual,
   uint8_t in_buf[1];
   uint8_t out_buf[1];
   int char_nr = 0;
+  int v0 = 0;
   int v1 = 0;
   int v2 = 0;
   int v3;
   uint16_t tmp16;
-  uint8_t crc;
+  int crc;
 
   while (fread(&in_buf[0], sizeof(in_buf[0]), 1, stdin)) {
     if (char_nr == 0) {
@@ -256,8 +259,8 @@ static int decode_54(int allow_single, int allow_dual,
 
       if ((v1 & (1 << 0)) == 0) { /* mode == 0 (single mode) */
         if (allow_single) {
-          crc = calculate_54s_crc(v1 & 0xfd, v2); /* omit CRC bit */
-          if (((v1 & (1 << 1)) >> 1) != (crc & 0x01)) {
+          crc = calculate_54s_crc(v0, v1 & 0xfd, v2); /* omit CRC bit */
+          if (((v1 & (1 << 1)) >> 1) != crc) {
             fprintf(stderr, "crc mismatch\n");
             return 1;
           }
@@ -269,6 +272,7 @@ static int decode_54(int allow_single, int allow_dual,
           /* most significant value is stored in the first character */
           out_buf[0] = ((v1 >> 3) * 54) + v2;
           fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+          v0 = v2;
         } else {
           fprintf(stderr, "unable to decode second 54 character\n");
           return 1;
@@ -294,6 +298,7 @@ static int decode_54(int allow_single, int allow_dual,
         out_buf[0] = tmp16 & 0xff;
         fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
         char_nr = 0;
+        v0 = v3;
       } else {
         fprintf(stderr, "unable to decode third 54 character\n");
         return 1;
@@ -327,10 +332,10 @@ int main(int argc, char **argv)
       return encode_54s(NULL, NULL);
     }
     if (strcmp(argv[1], "encode-54d") == 0) {
-      return encode_54d(NULL);
+      return encode_54d(0);
     }
     if (strcmp(argv[1], "encode-54ds") == 0) {
-      return encode_54d(encode_54s_byte_no_oob);
+      return encode_54d(1);
     }
     if (strcmp(argv[1], "decode-54s") == 0) {
       return decode_54(1, 0, NULL, NULL);
