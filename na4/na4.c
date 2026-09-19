@@ -164,35 +164,6 @@ static int encode_frame(uint8_t *buf, int len)
   return 0;
 }
 
-/* encode binary input stream to ASCII character output */
-static int encode(void)
-{
-  uint8_t buf[INPUT_BUFSIZE];
-  int cnt;
-  int n;
-
-  do {
-    memset(buf, 0, INPUT_BUFSIZE);
-    cnt = 0;
-
-    /* read one byte at a time to fill up to INPUT_BUFSIZE */
-    do {
-      n = fread(&buf[cnt], 1, 1, stdin);
-      if (n) {
-	cnt++;
-      }
-    } while (n && (cnt < INPUT_BUFSIZE));
-
-    if (cnt > 0) {
-      if (encode_frame(buf, cnt) < 0) {
-	return -1;
-      }
-    }
-  } while (n > 0);
-
-  return 0;
-}
-
 static uint8_t bigint_mul77_div256(uint8_t *limbs, int len)
 {
   uint8_t carry = 0;
@@ -292,27 +263,28 @@ static int decode_frame(uint8_t *buf, int len)
   return 0;
 }
 
-/* decode by going backwards from OUTPUT_BUFSIZE to INPUT_BUFSIZE */
-static int decode(void)
+#define MAX(x,y) ((x) > (y) ? (x) : (y))
+static uint8_t buf[MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)];
+
+static int stdin_fread(int bufsize, int (*f)(uint8_t *limbs, int len))
 {
-  uint8_t buf[OUTPUT_BUFSIZE];
   int cnt;
   int n;
 
   do {
-    memset(buf, 0, OUTPUT_BUFSIZE);
+    memset(buf, 0, bufsize);
     cnt = 0;
     
-    /* read one byte at a time to fill up to OUTPUT_BUFSIZE */
+    /* read one byte at a time to fill up to bufsize */
     do {
       n = fread(&buf[cnt], 1, 1, stdin);
       if (n) {
         cnt++;
       }
-    } while (n && (cnt < OUTPUT_BUFSIZE));
+    } while (n && (cnt < bufsize));
   
     if (cnt > 0) {
-      if (decode_frame(buf, cnt) < 0) {
+      if (f(buf, cnt) < 0) {
         return -1;
       }
     }
@@ -329,8 +301,8 @@ int main(int argc, char **argv)
       return 0;
     }
     if (strcmp(argv[1], "-d") == 0) {
-      return decode() != 0;
+      return stdin_fread(OUTPUT_BUFSIZE, decode_frame) != 0;
     }
   }
-  return encode() != 0;
+  return stdin_fread(INPUT_BUFSIZE, encode_frame) != 0;
 }
