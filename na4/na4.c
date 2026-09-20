@@ -241,7 +241,7 @@ static int encode_frame(uint8_t *buf, int len)
     num[i] = (buf[i] >> 4) | (r << 4);
     r = buf[i] & 0x0f;
   }
-  num[i] = r << 4;
+  num[i] = r;
 
   bigint_process(rem, OUTPUT_BUFSIZE, num, PROCESS_BUFSIZE,
                  bigint_mul256_div77);
@@ -356,12 +356,12 @@ static int decode_frame(uint8_t *buf, int len)
     uint8_t r = num[0] & 0x0f;
     uint8_t tmp;
 
-    for (i = 1; i < expected_size; i++) {
+    for (i = 1; i < (expected_size - 1); i++) {
       tmp = num[i];
       num[i] = (tmp >> 4) | (r << 4);
       r = tmp & 0x0f;
     }
-    num[i] = r;
+    num[i] |= (r << 4);
 
     if (calculate_crc(&num[1], expected_size - 1) != (num[0] >> 4)) {
       fprintf(stderr, "crc mismatch (%d)\n", expected_size);
