@@ -1,8 +1,63 @@
 /* SPDX-License-Identifier: MIT */
 /*                                                                           */
-/* na4.c - a simple tool to Base77 encode/decode data                        */
+/* na4.c - a simple tool to encode/decode base77 data                        */
 /*                                                                           */
 /* Copyright (C) 2026 Magnus Damm                                            */
+/*                                                                           */
+/* this code makes use of base77 with 6.203125 bits per character to         */
+/* encode and decode chunks of 32 byte binary data into 42 ASCII characters  */
+/*                                                                           */
+/* it generates somewhat smaller amount of data compared to base64 (for data */
+/* sizes >= 32 bytes) but more importantly it also allocates the bits wisely */
+/* in to squeeze in 4-bit CRC support in addition to the 256 data bits       */
+/*                                                                           */
+/* the idea is to make a blend of efficiency and robustness with the main    */
+/* tradeoff that the base77 slice and glue code is a tiny bit math heavy     */
+/*                                                                           */
+/* the character set is the same as the 1654.c base54 and base16 combined    */
+/* but extended to be case sensitive and with the '*' character added:       */
+/*                                                                           */
+/* 0123456789                                                                */
+/* ABCDEFGHIJKLMNOPQRSTUVWXYZ                                                */
+/* abcdefghijklmnopqrstuvwxyz                                                */
+/* (),-.<>@[]^_{}*                                                           */
+/*                                                                           */
+/* About the file format:                                                    */
+/* each frame is made up of a header and data                                */
+/* there are three types of headers in sizes from 0 to 2 characters          */
+/* after the header follows N characters of encoded data                     */
+/* one encoded frame contains a maximum of 32 encoded bytes as 42 characters */
+/* the data stream is made up of one or several encoded frames in a sequence */
+/*                                                                           */
+/* there are two kinds of frames:                                            */
+/* - regular frames                                                          */
+/* - tail frames                                                             */
+/*                                                                           */
+/* a regular frame is also known as a 0 character header and is the common   */
+/* case used to encode chunks of 32 bytes into 42 character frames. the 0    */
+/* character header may be detected by checking the value of the first       */
+/* character of the frame. only bottom 64 characters are used to encode the  */
+/* first character of a regular frame. when decoding, if the first character */
+/* turns out to be within the bottom 64 character set then it needs to be    */
+/* further processed to extract the encoded data                             */
+/*                                                                           */
+/* the top characters in the character set are used to flag that a frame     */
+/* should be treated as a tail frame. base77 characters are mostly used      */
+/* freely to encode data in a regular frame, however the first character of  */
+/* a frame is a special case and the following calculation shows that there  */
+/* should be enough bits available by encoding 41 characters as base77 but   */
+/* encode the first character in a frame as base64:                          */
+/*                                                                           */
+/* (6.203125 * 41) + 6 = 260.328125 which covers 256 bits of data and 4 CRC  */
+/*                                                                           */
+/* TAIL1 frames simply use a prefix character to determine the tail size     */
+/* such as 1-byte frames, 2-byte frames, 31-byte frames and TAIL2 format     */
+/* TAIL2 uses an additional character to also encode the remaining sizes     */
+/*                                                                           */
+/* TODO:                                                                     */
+/* - Use something better for CRC than plain hamming weight                  */
+/* - Fix the +1 cases in the table to allow more compact tail encoding       */
+/* - Clean up the decoder                                                    */
 
 #include <stdio.h>
 #include <stdint.h>
