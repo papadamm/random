@@ -295,7 +295,7 @@ static int decode_frame(uint8_t *buf, int len)
   }
 
   bigint_process(num, PROCESS_BUFSIZE, &chars[offs], len + offs,
-		 bigint_mul77_div256);
+                 bigint_mul77_div256);
 
   {
     uint8_t r = num[0] & 0x0f;
@@ -337,7 +337,7 @@ static int stdin_fread(int bufsize, int (*f)(uint8_t *limbs, int len))
         cnt++;
       }
     } while (n && (cnt < bufsize));
-  
+
     if (cnt > 0) {
       if (f(buf, cnt) < 0) {
         return -1;
