@@ -55,7 +55,6 @@
 /* TAIL2 uses an additional character to also encode the remaining sizes     */
 /*                                                                           */
 /* TODO:                                                                     */
-/* - Use something better for CRC than plain hamming weight                  */
 /* - Fix the +1 cases in the table to allow more compact tail encoding       */
 /* - Clean up the decoder                                                    */
 
@@ -70,7 +69,7 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
 
 // Divides a BigInt in-place by 'divisor' and returns the remainder (%).
-// Little-endian: limbs[0] is LS, limbs[len-1] is MS.
+// Little-endian: limbs[0] is LS, limbs[len-1] is MS. (thank you Gemini)
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
 {
   uint8_t remainder = 0;
@@ -148,25 +147,24 @@ static int check_bottom_64(char ch)
   return !((found - str) >= 64);
 }
 
-static uint8_t calculate_crc(uint8_t *buf, int len)
+/* Precomputed table for CRC-4 ITU (x^4 + x + 1), poly = 0x3, MSB-first */
+static const uint8_t crc4_table[16] = {
+  0x0, 0x3, 0x6, 0x5, 0xC, 0xF, 0xA, 0x9,
+  0xB, 0x8, 0xD, 0xE, 0x7, 0x4, 0x1, 0x2
+};
+
+/* CRC-4 implementation (thank you Gemini) */
+static uint8_t crc4_itu(const uint8_t *data, size_t len)
 {
-  uint32_t cnt = 0;
-  uint8_t data_in;
+  uint8_t crc = 0x0;
   int i;
 
   for (i = 0; i < len; i++) {
-    data_in = buf[i];
-
-    /* highly unoptimized hamming weight (replace with one processor opcode) */
-    while (data_in) {
-      if (data_in & 0x01) {
-        cnt++;
-      }
-      data_in >>= 1;
-    }
+    crc = crc4_table[crc ^ (data[i] >> 4)];
+    crc = crc4_table[crc ^ (data[i] & 0x0F)];
   }
 
-  return cnt & 0x0f;
+  return crc;
 }
 
 #define BITS(n) ((n) / 8)
@@ -261,7 +259,7 @@ static int encode_frame(uint8_t *buf, int len)
   uint8_t rem[OUTPUT_BUFSIZE] = {};
   uint8_t rev[OUTPUT_BUFSIZE] = {};
   int i, s, hdr_size;
-  uint8_t r = calculate_crc(buf, len);
+  uint8_t r = crc4_itu(buf, len);
 
   for (i = 0; i < len; i++) {
     num[i] = (buf[i] >> 4) | (r << 4);
@@ -403,8 +401,9 @@ static int decode_frame(uint8_t *buf, int len)
     }
     num[i] |= (r << 4);
 
-    if (calculate_crc(&num[1], expected_size - 1) != (num[0] >> 4)) {
-      fprintf(stderr, "crc mismatch (%d)\n", expected_size);
+    r = crc4_itu(&num[1], expected_size - 1);
+    if (r != (num[0] >> 4)) {
+      fprintf(stderr, "crc mismatch (%d, %d)\n", r, num[0] >> 4);
       return -1;
     }
   }
