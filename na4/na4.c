@@ -61,7 +61,6 @@
 /* char in -> [tail] decoding -> reverse -> BigInt(mul77_div256) -> bin out  */
 /*                                                                           */
 /* TODO:                                                                     */
-/* - Fix the +1 cases in the table to allow more compact tail encoding       */
 /* - Clean up the decoder and the encoder                                    */
 
 #include <stdio.h>
@@ -178,36 +177,35 @@ static uint8_t crc4_itu(const uint8_t *data, size_t len)
 #define TAIL2(b, c) ((b) + (c ? 1 : 0) + 2) /* 2 character header */
 
 /* map between source encoding length and bits used to generate chars out */
-/* FIXME: the +1 isn't supposed to be there */
 static uint16_t frame_size[] = {
-  [BITS(8)] = TAIL1(2+1, 0),    /* 12.41 bits DATA + 4 bits CRC */
+  [BITS(8)] = TAIL1(2, 0),    /* 12.41 bits DATA + 4 bits CRC */
   [BITS(16)] = TAIL1(3, 4),     /* 18.61 bits DATA + 4 bits CRC */
   [BITS(24)] = TAIL2(4, 4),     /* 24.81 bits DATA + 4 bits CRC */
   [BITS(32)] = TAIL2(6, 4),     /* 37.21 bits DATA + 4 bits CRC */
   [BITS(40)] = TAIL2(7, 4),     /* 43.42 bits DATA + 4 bits CRC */
   [BITS(48)] = TAIL2(8, 4),     /* 49.62 bits DATA + 4 bits CRC */
-  [BITS(56)] = TAIL2(10+1, 0),  /* 62.03 bits DATA + 4 bits CRC */
-  [BITS(64)] = TAIL2(11+1, 0),  /* 68.23 bits DATA + 4 bits CRC */
+  [BITS(56)] = TAIL2(10, 0),  /* 62.03 bits DATA + 4 bits CRC */
+  [BITS(64)] = TAIL2(11, 0),  /* 68.23 bits DATA + 4 bits CRC */
   [BITS(72)] = TAIL2(12, 4),    /* 74.43 bits DATA + 4 bits CRC */
   [BITS(80)] = TAIL2(13, 4),    /* 80.64 bits DATA + 4 bits CRC */
-  [BITS(88)] = TAIL2(15+1, 0),  /* 93.04 bits DATA + 4 bits CRC */
+  [BITS(88)] = TAIL2(15, 0),  /* 93.04 bits DATA + 4 bits CRC */
   [BITS(96)] = TAIL2(16, 4),    /* 99.25 bits DATA + 4 bits CRC */
   [BITS(104)] = TAIL2(17, 4),   /* 105.42 bits DATA + 4 bits CRC */
-  [BITS(112)] = TAIL2(19+1, 0), /* 117.85 bits DATA + 4 bits CRC */
-  [BITS(120)] = TAIL2(20+1, 0), /* 124.06 bits DATA + 4 bits CRC */
+  [BITS(112)] = TAIL2(19, 0), /* 117.85 bits DATA + 4 bits CRC */
+  [BITS(120)] = TAIL2(20, 0), /* 124.06 bits DATA + 4 bits CRC */
   [BITS(128)] = TAIL2(21, 4),   /* 130.26 bits DATA + 4 bits CRC */
   [BITS(136)] = TAIL2(22, 4),   /* 136.46 bits DATA + 4 bits CRC */
-  [BITS(144)] = TAIL2(24+1, 0), /* 148.87 bits DATA + 4 bits CRC */
+  [BITS(144)] = TAIL2(24, 0), /* 148.87 bits DATA + 4 bits CRC */
   [BITS(152)] = TAIL2(25, 4),   /* 155.07 bits DATA + 4 bits CRC */
   [BITS(160)] = TAIL2(26, 4),   /* 161.28 bits DATA + 4 bits CRC */
-  [BITS(168)] = TAIL2(28+1, 0), /* 173.69 bits DATA + 4 bits CRC */
+  [BITS(168)] = TAIL2(28, 0), /* 173.69 bits DATA + 4 bits CRC */
   [BITS(176)] = TAIL2(29, 4),   /* 179.89 bits DATA + 4 bits CRC */
   [BITS(184)] = TAIL2(30, 4),   /* 186.09 bits DATA + 4 bits CRC */
   [BITS(192)] = TAIL2(31, 4),   /* 192.29 bits DATA + 4 bits CRC */
-  [BITS(200)] = TAIL2(33+1, 0), /* 204.70 bits DATA + 4 bits CRC */
+  [BITS(200)] = TAIL2(33, 0), /* 204.70 bits DATA + 4 bits CRC */
   [BITS(208)] = TAIL2(34, 4),   /* 210.91 bits DATA + 4 bits CRC */
   [BITS(216)] = TAIL2(35, 4),   /* 217.11 bits DATA + 4 bits CRC */
-  [BITS(224)] = TAIL2(37+1, 0), /* 229.52 bits DATA + 4 bits CRC */
+  [BITS(224)] = TAIL2(37, 0), /* 229.52 bits DATA + 4 bits CRC */
   [BITS(232)] = TAIL2(38, 4),   /* 235.72 bits DATA + 4 bits CRC */
   [BITS(240)] = TAIL2(39, 4),   /* 241.92 bits DATA + 4 bits CRC */
   [BITS(248)] = TAIL1(40, 4),   /* 248.13 bits DATA + 4 bits CRC */
