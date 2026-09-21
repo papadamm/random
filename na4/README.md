@@ -3,7 +3,7 @@ na4 is a tool to encode and decode binaries to/from ASCII format. The tool encod
 
 There is no Makefile, but with almost no dependencies building the tool is very simple:
 ```console
-% gcc -Wall -o 1654 1654.c
+% gcc -Wall -o na4 na4.c
 ```
 
 Quick tutorial to encode and decode data:
