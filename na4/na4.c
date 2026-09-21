@@ -7,9 +7,12 @@
 /* this code makes use of base77 with 6.203125 bits per character to         */
 /* encode and decode chunks of 32 byte binary data into 42 ASCII characters  */
 /*                                                                           */
-/* it generates somewhat smaller amount of data compared to base64 (for data */
-/* sizes >= 32 bytes) but more importantly it also allocates the bits wisely */
-/* in to squeeze in 4-bit CRC support in addition to the 256 data bits       */
+/* if the -s option is enabled SHA256 is used to verify the encoded contents */
+/* please pass an integer (N) to -s and feed N bytes to stdin for suffix MAC */
+/*                                                                           */
+/* by defdault the tool generates somewhat smaller amount of data compared   */
+/* to base64 (for data sizes >= 32 bytes) but more importantly it also       */
+/* allocates the bits wisely to squeeze in 4-bit CRC support in each frame   */
 /*                                                                           */
 /* the idea is to make a blend of efficiency and robustness with the main    */
 /* tradeoff that the base77 slice and glue code is a tiny bit math heavy     */
@@ -54,6 +57,8 @@
 /* such as 1-byte frames, 2-byte frames, 31-byte frames and TAIL2 format     */
 /* TAIL2 uses an additional character to also encode the remaining sizes     */
 /*                                                                           */
+/* if enabled when encoding, SHA256 data is stored in two TAIL2 frames       */
+/*                                                                           */
 /* When encoding the internal process looks like this:                       */
 /* bin in -> BigInt(mul256_div77) -> reverse -> [tail] encoding -> char out  */
 /*                                                                           */
@@ -64,14 +69,24 @@
 /* - Clean up the decoder and the encoder                                    */
 
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
+#include <stdint.h>
+
+#define MAX(x,y) ((x) > (y) ? (x) : (y))
+#define MIN(x,y) ((x) < (y) ? (x) : (y))
 
 char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz(),-.<>@[]^_{}*";
 
 #define INPUT_BUFSIZE 32 /* 32 bytes input per frame maximum */
 #define PROCESS_BUFSIZE 33 /* 32 bytes input + 4 bits CRC */
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
+
+/* sha256 enablement */
+void *sha256_enabled;
+static int sha256_is_enabled(void)
+{
+  return !!sha256_enabled;
+}
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
@@ -255,7 +270,7 @@ static void reverse_data(uint8_t *dst, uint8_t *src,
   }
 }
 
-static int encode_frame(uint8_t *buf, int len)
+static int encode_frame_custom(uint8_t *buf, int len, char custom_tail)
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t rem[OUTPUT_BUFSIZE] = {};
@@ -282,8 +297,10 @@ static int encode_frame(uint8_t *buf, int len)
 
   reverse_data(rev, rem, OUTPUT_BUFSIZE, frame_size[len] - hdr_size);
 
+  if (custom_tail) {
+    output_tail(custom_tail, encode_char(len - 3), rev, frame_size[len]);
+  } else if (len == 32) {
   /* any frame with less than 32 bytes input data needs tail encoding */
-  if (len == 32) {
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
@@ -301,7 +318,7 @@ static int encode_frame(uint8_t *buf, int len)
     output_tail(encode_char_top_64(9), encode_char(len - 3),
                 rev, frame_size[len]);
   }
-  return 0;
+  return len;
 }
 
 /* decoding math, the reverse of the encoding processing */
@@ -337,13 +354,18 @@ static int decode_char(int ch)
 }
 
 /* decode incoming ASCII characters, generate binary data */
-static int decode_frame(uint8_t *buf, int len)
+static int decode_frame_custom(uint8_t *dst, int dst_len,
+			       uint8_t *buf, int len,
+			       int *dst_bytes,
+                               int (*handle_custom_tail)(int, uint8_t *, int))
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t chars[OUTPUT_BUFSIZE] = {};
   uint8_t rev[OUTPUT_BUFSIZE] = {};
   int i, n, s;
   int offs, expected_size;
+  int output_length;
+  int is_custom_tail = 0;
 
   /* convert ASCII encoded data to integers */
   for (i = 0; i < len; i++) {
@@ -382,13 +404,31 @@ static int decode_frame(uint8_t *buf, int len)
     }
     offs = 2;
     expected_size = chars[1] + 3 + 1;
+  } else if (encode_char(chars[0]) == encode_char_top_64(8)) {
+    if (chars[1] != (16 - 3)) {
+      fprintf(stderr, "sha256 tail length character mismatch\n");
+      return -1;
+    }
+    is_custom_tail = encode_char_top_64(8);
+    offs = 2;
+    expected_size = chars[1] + 3 + 1;
+  } else if (encode_char(chars[0]) == encode_char_top_64(7)) {
+    if (chars[1] != (16 - 3)) {
+      fprintf(stderr, "sha256 tail length character mismatch\n");
+      return -1;
+    }
+    is_custom_tail = encode_char_top_64(7);
+    offs = 2;
+    expected_size = chars[1] + 3 + 1;
   } else {
     fprintf(stderr, "unsupported tail character\n");
     return -1;
   }
 
+  output_length = frame_size[expected_size - 1];
+
   reverse_data(rev, &chars[offs], OUTPUT_BUFSIZE - offs,
-               frame_size[expected_size - 1] - offs);
+	       frame_size[expected_size - 1] - offs);
 
   bigint_process(num, PROCESS_BUFSIZE, rev, OUTPUT_BUFSIZE,
                  bigint_mul77_div256);
@@ -411,22 +451,279 @@ static int decode_frame(uint8_t *buf, int len)
     }
   }
 
-  fwrite(&num[1], expected_size - 1, 1, stdout);
+  n = MIN(dst_len, expected_size - 1);
+
+  if (is_custom_tail) {
+    if (handle_custom_tail) {
+      handle_custom_tail(is_custom_tail, &num[1], n);
+    }
+    
+    if (dst_bytes)
+      *dst_bytes = 0;
+  } else {
+    memcpy(dst, &num[1], n);
+
+    if (dst_bytes)
+      *dst_bytes = n;
+  }
+
+  return output_length; /* number of source bytes processed */
+}
+
+/* SHA256 implementation (thanks Gemini) */
+
+#define SHA256_DIGEST_SIZE 32
+
+typedef struct {
+  uint32_t state[8];
+  uint64_t count;
+  uint8_t buffer[64];
+} SHA256_CTX;
+
+#define CH(x, y, z)  (((x) & (y)) ^ (~(x) & (z)))
+#define MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
+#define ROTR(x, n)   (((x) >> (n)) | ((x) << (32 - (n))))
+#define SIGMA0(x)    (ROTR(x, 2) ^ ROTR(x, 13) ^ ROTR(x, 22))
+#define SIGMA1(x)    (ROTR(x, 6) ^ ROTR(x, 11) ^ ROTR(x, 25))
+#define sigma0(x)    (ROTR(x, 7) ^ ROTR(x, 18) ^ ((x) >> 3))
+#define sigma1(x)    (ROTR(x, 17) ^ ROTR(x, 19) ^ ((x) >> 10))
+
+static const uint32_t K[64] = {
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+  0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+  0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+  0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+  0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+  0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+static void sha256_transform(uint32_t state[8], const uint8_t block[64])
+{
+  uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+  uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
+  uint32_t w[64];
+  int i;
+
+  for (i = 0; i < 16; i++) {
+    w[i] = ((uint32_t)block[i * 4] << 24) |
+           ((uint32_t)block[i * 4 + 1] << 16) |
+           ((uint32_t)block[i * 4 + 2] << 8) |
+           ((uint32_t)block[i * 4 + 3]);
+  }
+  for (i = 16; i < 64; i++) {
+    w[i] = sigma1(w[i - 2]) + w[i - 7] + sigma0(w[i - 15]) + w[i - 16];
+  }
+
+  for (i = 0; i < 64; i++) {
+    uint32_t t1 = h + SIGMA1(e) + CH(e, f, g) + K[i] + w[i];
+    uint32_t t2 = SIGMA0(a) + MAJ(a, b, c);
+    h = g; g = f; f = e; e = d + t1;
+    d = c; c = b; b = a; a = t1 + t2;
+  }
+
+  state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+  state[4] += e; state[5] += f; state[6] += g; state[7] += h;
+}
+
+static void sha256_init(SHA256_CTX *ctx)
+{
+  ctx->count = 0;
+  ctx->state[0] = 0x6a09e667;
+  ctx->state[1] = 0xbb67ae85;
+  ctx->state[2] = 0x3c6ef372;
+  ctx->state[3] = 0xa54ff53a;
+  ctx->state[4] = 0x510e527f;
+  ctx->state[5] = 0x9b05688c;
+  ctx->state[6] = 0x1f83d9ab;
+  ctx->state[7] = 0x5be0cd19;
+}
+
+static void sha256_update(SHA256_CTX *ctx, const uint8_t *data, size_t len)
+{
+  size_t index = (size_t)((ctx->count >> 3) % 64);
+  ctx->count += ((uint64_t)len << 3);
+
+  size_t part_len = 64 - index;
+  size_t i = 0;
+
+  if (len >= part_len) {
+    memcpy(&ctx->buffer[index], data, part_len);
+    sha256_transform(ctx->state, ctx->buffer);
+    for (i = part_len; i + 64 <= len; i += 64) {
+        sha256_transform(ctx->state, &data[i]);
+    }
+    index = 0;
+  }
+  memcpy(&ctx->buffer[index], &data[i], len - i);
+}
+
+static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
+{
+  static const uint8_t pad[64] = { 0x80 };
+  uint8_t bits[8];
+
+  for (int i = 0; i < 8; i++) {
+    bits[i] = (uint8_t)((ctx->count >> ((7 - i) * 8)) & 0xFF);
+  }
+
+  size_t index = (size_t)((ctx->count >> 3) % 64);
+  size_t pad_len = (index < 56) ? (56 - index) : (120 - index);
+  sha256_update(ctx, pad, pad_len);
+  sha256_update(ctx, bits, 8);
+
+  for (int i = 0; i < 8; i++) {
+    digest[i * 4]     = (uint8_t)((ctx->state[i] >> 24) & 0xFF);
+    digest[i * 4 + 1] = (uint8_t)((ctx->state[i] >> 16) & 0xFF);
+    digest[i * 4 + 2] = (uint8_t)((ctx->state[i] >> 8) & 0xFF);
+    digest[i * 4 + 3] = (uint8_t)(ctx->state[i] & 0xFF);
+  }
+}
+
+SHA256_CTX sha256_global_ctx;
+
+int sha256_derived_key_bytes = 0;
+uint8_t sha256_derived_key[32];
+
+int sha256_stored_sum_bytes = 0;
+uint8_t sha256_stored_sum[32];
+
+static void sha256_enable(void)
+{
+  sha256_enabled = &sha256_global_ctx;
+  sha256_init(sha256_enabled);
+}
+
+/* Simple Suffix-MAC with SHA-256 */
+/* when encoding, store the sha256 sum */
+static int store_sha256(SHA256_CTX *sha256)
+{
+  uint8_t sha256_res[32];
+
+  /* add the SHA256 of the secret key after the data payload */
+  if (sha256) {
+    if (sha256_derived_key_bytes) {
+      sha256_update(sha256, sha256_derived_key, sha256_derived_key_bytes);
+    }
+    sha256_final(sha256_res, sha256);
+  }
+
+  /* store key as two custom tail frames (7 after 8) */
+  encode_frame_custom(&sha256_res[0], 16, encode_char_top_64(8));
+  encode_frame_custom(&sha256_res[16], 16, encode_char_top_64(7));
   return 0;
 }
 
-#define MAX(x,y) ((x) > (y) ? (x) : (y))
+/* when decoding, compare with the stored sum */
+static int compare_sha256(SHA256_CTX *sha256)
+{
+  uint8_t sha256_res[32];
+
+  /* add the SHA256 of the secret key after the data payload */
+  if (sha256) {
+    if (sha256_derived_key_bytes) {
+      sha256_update(sha256, sha256_derived_key, sha256_derived_key_bytes);
+    }
+    sha256_final(sha256_res, sha256);
+  }
+
+  if (sha256_stored_sum_bytes == 0) {
+    fprintf(stderr, "sha256 sum not present in parsed data\n");
+    return -1;
+  }
+
+  if (memcmp(sha256_res, sha256_stored_sum, 32) != 0) {
+    fprintf(stderr, "sha256 sum mismatch\n");
+    return -1;
+  }
+
+  //fprintf(stderr, "sha256 sum correct\n");
+  return 0;
+}
+
+static int process_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+{
+ if (sha256) {
+   sha256_update(sha256, buf, len);
+  }
+  return len;
+}
+
+static int encode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+{
+  if (sha256) {
+   sha256_update(sha256, buf, len);
+  }
+
+ return encode_frame_custom(buf, len, 0);
+}
+
+static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
+{
+  if (tail_type == encode_char_top_64(8)) {
+    if (sha256_stored_sum_bytes == 0) {
+      memcpy(&sha256_stored_sum[0], buf, 16);
+      //fprintf(stderr, "loading sum from tail type 8\n");
+      sha256_stored_sum_bytes = 16;
+    }
+  }
+  if (tail_type == encode_char_top_64(7)) {
+    if (sha256_stored_sum_bytes == 16) {
+      memcpy(&sha256_stored_sum[16], buf, 16);
+      //fprintf(stderr, "loading sum from tail type 7\n");
+      sha256_stored_sum_bytes = 32;
+    }
+  }
+  return 0;
+}
+
+static int decode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+{
+  uint8_t frame_out[INPUT_BUFSIZE];
+  int bytes_out = 0;
+  int res = 0;
+
+  res = decode_frame_custom(frame_out, INPUT_BUFSIZE, buf, len,
+			    &bytes_out, decode_custom_tail);
+  if (res < 0) {
+    return res;
+  }
+
+  if ((res > 0) && (bytes_out > 0)) {
+    if (sha256) {
+      sha256_update(sha256, frame_out, bytes_out);
+    }
+    fwrite(frame_out, bytes_out, 1, stdout);
+  }
+  return res;
+}
+
 static uint8_t buf[MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)];
 
-static int stdin_fread(int bufsize, int (*f)(uint8_t *limbs, int len))
+static int stdin_fread_sha256(int bufsize,
+                              int (*f)(SHA256_CTX *, uint8_t *, int),
+			      int num_bufs,
+                              SHA256_CTX *sha256,
+                              int (*c)(SHA256_CTX *))
 {
+  int total_bytes = 0;
   int cnt;
-  int n;
+  int n, m;
 
   do {
     memset(buf, 0, bufsize);
     cnt = 0;
-    
+
+  read_again:
     /* read one byte at a time to fill up to bufsize */
     do {
       n = fread(&buf[cnt], 1, 1, stdin);
@@ -435,26 +732,100 @@ static int stdin_fread(int bufsize, int (*f)(uint8_t *limbs, int len))
       }
     } while (n && (cnt < bufsize));
 
+    m = 0;
     if (cnt > 0) {
-      if (f(buf, cnt) < 0) {
-        return -1;
+      if (f)  {
+	m = f(sha256, buf, cnt);
+        if (m < 0) {
+          return -1;
+        }
       }
+    }
+    if (f && (m < cnt)) {
+      memmove(&buf[0], &buf[m], bufsize - m);
+      total_bytes += m;
+      cnt -= m;
+      goto read_again;
+    }
+  
+    total_bytes += cnt;
+    if (num_bufs == 1) {
+      break;
     }
   } while (n > 0);
 
-  return 0;
+  if (c && sha256) {
+    if (c(sha256) < 0) {
+      return -1;
+    }
+  }
+
+  return total_bytes;
 }
 
 int main(int argc, char **argv)
 {
-  if (argc == 2) {
-    if (strcmp(argv[1], "--help") == 0) {
-      fprintf(stdout, "%s: a simple Base77 encoder/decoder\n", argv[0]);
-      return 0;
+  int decode_enabled = 0;
+  int sha256_secret_bytes = -1;
+  int i = 1;
+
+  while(1) {
+    if (argc >= (i + 1)) {
+      if (strcmp(argv[i], "--help") == 0) {
+        fprintf(stdout, "%s: a simple Base77 encoder/decoder\n", argv[0]);
+        return 0;
+      } else if (strcmp(argv[i], "-s") == 0) {
+	if ((argc >= (i + 2))) {
+	  if (sscanf(argv[i + 1], "%u", &sha256_secret_bytes) == 1) {
+	    if (!sha256_is_enabled()) {
+	      sha256_enable();
+	    }
+            i += 2;
+	  }
+	}
+	if (sha256_secret_bytes == -1) {
+	  fprintf(stderr, "%s: unable to parse -s argument\n", argv[0]);
+	  return 1;
+	}
+	continue;
+      } else if (strcmp(argv[i], "-d") == 0) {
+        decode_enabled = 1;
+	i++;
+	continue;
+      }
     }
-    if (strcmp(argv[1], "-d") == 0) {
-      return stdin_fread(OUTPUT_BUFSIZE, decode_frame) != 0;
+    break;
+  }
+
+  if (sha256_secret_bytes >= 0) {
+    if (sha256_secret_bytes == 0) {
+      fprintf(stderr, "warning: SHA256 signature mode enabled "
+	      "with zero secret (aka naive mode)\n");
+    } else {
+      int key_bytes;
+      
+      SHA256_CTX derived_key_ctx;
+      sha256_init(&derived_key_ctx);
+      key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+                                     process_frame_sha256, 1,
+                                     &derived_key_ctx, NULL);
+
+      if (key_bytes != sha256_secret_bytes) {
+        fprintf(stderr, "unable to read secret (%d, %d)\n",
+		key_bytes, sha256_secret_bytes);
+	return 1;
+      }
+      
+      sha256_final(sha256_derived_key, &derived_key_ctx);
+      sha256_derived_key_bytes = 32;
     }
   }
-  return stdin_fread(INPUT_BUFSIZE, encode_frame) != 0;
+  
+  if (decode_enabled) {
+    return stdin_fread_sha256(OUTPUT_BUFSIZE, decode_frame_sha256, 0,
+			      sha256_enabled, compare_sha256) != 0;
+  } else {
+    return stdin_fread_sha256(INPUT_BUFSIZE, encode_frame_sha256, 0,
+                              sha256_enabled, store_sha256) != 0;
+  }
 }
