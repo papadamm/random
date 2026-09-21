@@ -10,7 +10,10 @@
 /* if the -s option is enabled SHA256 is used to verify the encoded contents */
 /* please pass an integer (N) to -s and feed N bytes to stdin for suffix MAC */
 /*                                                                           */
-/* by defdault the tool generates somewhat smaller amount of data compared   */
+/* please note that the contents are not encrypted but the SHA256 signature  */
+/* may be used to check if the data has been tampered with or not            */
+/*                                                                           */
+/* by default the tool generates somewhat smaller amount of data compared    */
 /* to base64 (for data sizes >= 32 bytes) but more importantly it also       */
 /* allocates the bits wisely to squeeze in 4-bit CRC support in each frame   */
 /*                                                                           */
