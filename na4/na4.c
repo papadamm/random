@@ -54,9 +54,15 @@
 /* such as 1-byte frames, 2-byte frames, 31-byte frames and TAIL2 format     */
 /* TAIL2 uses an additional character to also encode the remaining sizes     */
 /*                                                                           */
+/* When encoding the internal process looks like this:                       */
+/* bin in -> BigInt(mul256_div77) -> reverse -> [tail] encoding -> char out  */
+/*                                                                           */
+/* Decoding is pretty much the reverse of encoding:                          */
+/* char in -> [tail] decoding -> reverse -> BigInt(mul77_div256) -> bin out  */
+/*                                                                           */
 /* TODO:                                                                     */
 /* - Fix the +1 cases in the table to allow more compact tail encoding       */
-/* - Clean up the decoder                                                    */
+/* - Clean up the decoder and the encoder                                    */
 
 #include <stdio.h>
 #include <stdint.h>
@@ -68,8 +74,7 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 #define PROCESS_BUFSIZE 33 /* 32 bytes input + 4 bits CRC */
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
 
-// Divides a BigInt in-place by 'divisor' and returns the remainder (%).
-// Little-endian: limbs[0] is LS, limbs[len-1] is MS. (thank you Gemini)
+/* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
 {
   uint8_t remainder = 0;
@@ -206,7 +211,7 @@ static uint16_t frame_size[] = {
   [BITS(232)] = TAIL2(38, 4),   /* 235.72 bits DATA + 4 bits CRC */
   [BITS(240)] = TAIL2(39, 4),   /* 241.92 bits DATA + 4 bits CRC */
   [BITS(248)] = TAIL1(40, 4),   /* 248.13 bits DATA + 4 bits CRC */
-  [BITS(256)] = REGULAR(42),
+  [BITS(256)] = REGULAR(42),    /* 260.33 bits DATA + 4 bits CRC */
 };
 
 static void output_tail(char tail1, char tail2, uint8_t *buf, int len)
@@ -251,7 +256,6 @@ static void reverse_data(uint8_t *dst, uint8_t *src,
     }
   }
 }
-
 
 static int encode_frame(uint8_t *buf, int len)
 {
@@ -302,6 +306,7 @@ static int encode_frame(uint8_t *buf, int len)
   return 0;
 }
 
+/* decoding math, the reverse of the encoding processing */
 static uint8_t bigint_mul77_div256(uint8_t *limbs, int len)
 {
   uint8_t carry = 0;
