@@ -170,6 +170,7 @@ static uint8_t calculate_crc(uint8_t *buf, int len)
 }
 
 #define BITS(n) ((n) / 8)
+#define REGULAR(n) (n) /* 0 character header */
 #define TAIL1(b, c) ((b) + (c ? 1 : 0) + 1) /* 1 character header */
 #define TAIL2(b, c) ((b) + (c ? 1 : 0) + 2) /* 2 character header */
 
@@ -207,6 +208,7 @@ static uint16_t frame_size[] = {
   [BITS(232)] = TAIL2(38, 4),   /* 235.72 bits DATA + 4 bits CRC */
   [BITS(240)] = TAIL2(39, 4),   /* 241.92 bits DATA + 4 bits CRC */
   [BITS(248)] = TAIL1(40, 4),   /* 248.13 bits DATA + 4 bits CRC */
+  [BITS(256)] = REGULAR(42),
 };
 
 static void output_tail(char tail1, char tail2, uint8_t *buf, int len)
@@ -230,11 +232,35 @@ static void output_tail(char tail1, char tail2, uint8_t *buf, int len)
   }
 }
 
+static void reverse_data(uint8_t *dst, uint8_t *src,
+                         int src_len, int expected_size)
+{
+  int i, s;
+
+  /* when encoding, the data from the bigint processing comes out aligned */
+  /* to src[0] which means that any leading zeroes are at the src[41] side. */
+  /* however as part of the frame encoding used by this software we need to */
+  /* encode the first character as base64 which means if the rest of the */
+  /* logic operates on src[0] as first character value then we need to */
+  /* reverse the bytes so any unused bits ends up towards src[0]. */
+  /* without this the src[0] data will not always allow base64 encoding */
+
+  s = expected_size - 1;
+
+  for (i = 0; i < src_len; i++) {
+    if ((s - i) >= 0) {
+      dst[i] = src[s - i];
+    }
+  }
+}
+
+
 static int encode_frame(uint8_t *buf, int len)
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t rem[OUTPUT_BUFSIZE] = {};
-  int i, s;
+  uint8_t rev[OUTPUT_BUFSIZE] = {};
+  int i, s, hdr_size;
   uint8_t r = calculate_crc(buf, len);
 
   for (i = 0; i < len; i++) {
@@ -246,24 +272,34 @@ static int encode_frame(uint8_t *buf, int len)
   bigint_process(rem, OUTPUT_BUFSIZE, num, PROCESS_BUFSIZE,
                  bigint_mul256_div77);
 
+  /* FIXME: this ad-hoc header size calculation needs to be improved */
+  hdr_size = 2;
+  if ((len == 1) || (len == 2) || (len == 31)) {
+    hdr_size = 1;
+  } else if (len == 32) {
+    hdr_size = 0;
+  }
+
+  reverse_data(rev, rem, OUTPUT_BUFSIZE, frame_size[len] - hdr_size);
+
   /* any frame with less than 32 bytes input data needs tail encoding */
   if (len == 32) {
     /* the first char must be less than 64 when encoding full frames */
-    s = check_bottom_64(encode_char(rem[0]));
+    s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
       fprintf(stderr, "unable to encode the first character\n");
       return -1;
     }
-    output_tail(0, 0, rem, 42);
+    output_tail(0, 0, rev, 42);
   } else if (len == 1) {
-    output_tail(encode_char_top_64(12), 0, rem, frame_size[len]);
+    output_tail(encode_char_top_64(12), 0, rev, frame_size[len]);
   } else if (len == 2) {
-    output_tail(encode_char_top_64(11), 0, rem, frame_size[len]);
+    output_tail(encode_char_top_64(11), 0, rev, frame_size[len]);
   } else if (len == 31) {
-    output_tail(encode_char_top_64(10), 0, rem, frame_size[len]);
+    output_tail(encode_char_top_64(10), 0, rev, frame_size[len]);
   } else {
     output_tail(encode_char_top_64(9), encode_char(len - 3),
-                rem, frame_size[len]);
+                rev, frame_size[len]);
   }
   return 0;
 }
@@ -304,6 +340,7 @@ static int decode_frame(uint8_t *buf, int len)
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t chars[OUTPUT_BUFSIZE] = {};
+  uint8_t rev[OUTPUT_BUFSIZE] = {};
   int i, n, s;
   int offs, expected_size;
 
@@ -349,7 +386,10 @@ static int decode_frame(uint8_t *buf, int len)
     return -1;
   }
 
-  bigint_process(num, PROCESS_BUFSIZE, &chars[offs], len + offs,
+  reverse_data(rev, &chars[offs], OUTPUT_BUFSIZE - offs,
+               frame_size[expected_size - 1] - offs);
+
+  bigint_process(num, PROCESS_BUFSIZE, rev, OUTPUT_BUFSIZE,
                  bigint_mul77_div256);
 
   {
