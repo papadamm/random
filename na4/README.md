@@ -1,4 +1,4 @@
-# na4 (base77 encoder/decoder tool with integrated CRC4 and SHA256 support)
+# na4 (base77 encoder/decoder tool with integrated checksum support)
 na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. The encoded data tends to get smaller than Base64. And the checksums makes it more robust.
 
 There is no Makefile, but with almost no dependencies building the tool is very simple:
@@ -48,6 +48,8 @@ _8DaPIp)oMW_jej)A^D0TgqEwnVPNysE5iC5O9Qs<]D0<^0mYGzbigc*b4z@--gs3%
 i en laxask%
 ```
 
-If the secret "sex laxar " is shared by both by the encoder and the decoder butis not part of the transmitted encoded stream then a correct SHA256 sum indicates that the encoded data has not been tampered with.
+Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream and is kept private then a correct SHA256 sum indicates that the encoded data has not been tampered with.
+
+Please note that the encoded data is not encrypted. Also in the case that the SHA256 sum calculation fails the tool will still output the data.
 
 The utility follows standard Unix philosophy where lack or error message means success. Also if the decoder is used with the "-s" option and the received data stream is lacking SHA256 information this is treated as an error condition.
