@@ -307,7 +307,7 @@ static int encode_frame_custom(uint8_t *buf, int len, char custom_tail)
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
-      fprintf(stderr, "unable to encode the first character\n");
+      fprintf(stderr, "error: unable to encode the first character\n");
       return -1;
     }
     output_tail(0, 0, rev, 42);
@@ -374,7 +374,7 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
   for (i = 0; i < len; i++) {
     n = decode_char(buf[i]);
     if (n < 0) {
-      fprintf(stderr, "unable to decode ASCII data for character %d\n", i);
+      fprintf(stderr, "error: unable to decode ASCII data for char %d\n", i);
       return -1;
     }
     chars[i] = n;
@@ -382,7 +382,7 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
 
   s = check_bottom_64(encode_char(chars[0]));
   if (s < 0) {
-    fprintf(stderr, "unable to decode the first character\n");
+    fprintf(stderr, "error: unable to decode the first character\n");
     return -1;
   } else if (s == 1) { /* full frame, expect 42 ASCII characters */
     offs = 0;
@@ -402,14 +402,14 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
   } else if (encode_char(chars[0]) == encode_char_top_64(9)) {
     /* N bytes of data */
     if (chars[1] > 27) {
-      fprintf(stderr, "tail length character out of range (%d)\n", chars[1]);
+      fprintf(stderr, "error: tail length char out of range (%d)\n", chars[1]);
       return -1;
     }
     offs = 2;
     expected_size = chars[1] + 3 + 1;
   } else if (encode_char(chars[0]) == encode_char_top_64(8)) {
     if (chars[1] != (16 - 3)) {
-      fprintf(stderr, "sha256 tail length character mismatch\n");
+      fprintf(stderr, "error: sha256 tail length char mismatch\n");
       return -1;
     }
     is_custom_tail = encode_char_top_64(8);
@@ -417,14 +417,14 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
     expected_size = chars[1] + 3 + 1;
   } else if (encode_char(chars[0]) == encode_char_top_64(7)) {
     if (chars[1] != (16 - 3)) {
-      fprintf(stderr, "sha256 tail length character mismatch\n");
+      fprintf(stderr, "error: sha256 tail length char mismatch\n");
       return -1;
     }
     is_custom_tail = encode_char_top_64(7);
     offs = 2;
     expected_size = chars[1] + 3 + 1;
   } else {
-    fprintf(stderr, "unsupported tail character\n");
+    fprintf(stderr, "error: unsupported tail character\n");
     return -1;
   }
 
@@ -449,7 +449,7 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
 
     r = crc4_itu(&num[1], expected_size - 1);
     if (r != (num[0] >> 4)) {
-      fprintf(stderr, "crc mismatch (%d, %d)\n", r, num[0] >> 4);
+      fprintf(stderr, "error: crc mismatch (%d, %d)\n", r, num[0] >> 4);
       return -1;
     }
   }
@@ -640,12 +640,12 @@ static int compare_sha256(SHA256_CTX *sha256)
   }
 
   if (sha256_stored_sum_bytes == 0) {
-    fprintf(stderr, "sha256 sum not present in parsed data\n");
+    fprintf(stderr, "error: sha256 sum not present in parsed data\n");
     return -1;
   }
 
   if (memcmp(sha256_res, sha256_stored_sum, 32) != 0) {
-    fprintf(stderr, "sha256 sum mismatch\n");
+    fprintf(stderr, "error: sha256 sum mismatch\n");
     return -1;
   }
 
@@ -815,7 +815,7 @@ int main(int argc, char **argv)
                                      &derived_key_ctx, NULL);
 
       if (key_bytes != sha256_secret_bytes) {
-        fprintf(stderr, "unable to read secret (%d, %d)\n",
+        fprintf(stderr, "error: unable to read secret (%d, %d)\n",
                 key_bytes, sha256_secret_bytes);
         return 1;
       }
