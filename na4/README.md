@@ -1,6 +1,6 @@
-# na4 (base77 encoder/decoder tool with crypto and checksum)
+# na4 (base77 encoder/decoder tool with checksum and crypto support)
 
-na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. The encoded data tends to get smaller than Base64. And the checksums makes it more robust.
+na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. There is also optional AES-CTR encryption support.
 
 
 # Building 
@@ -37,12 +37,19 @@ Compare encoding efficiency of base77 with base64 like this:
 % seq 539 | ./na4 -s 0 | wc -c
 warning: SHA256 signature mode enabled with zero secret (aka naive mode)
     2736
+% ( echo -n X; seq 539 ) | wc -c 
+    2049
+% ( echo -n X; seq 539 ) | ./na4 -s 1 | wc -c
+    2736
+% ( echo -n X; seq 539 ) | ./na4 -s 1 -e | wc -c
+    2765
 ```
+As can be seen above comparing uudecode and the last example with encryption enabled, na4 with both SHA256 and AES-CTR support enabled is using less space than regular Base64.
 
 
 # SHA256
 
-Using the SHA256 feature in "naive mode":
+Using the SHA256 checksum feature in "naive mode":
 ```console
 % echo -n hello | ./na4 -s 0
 warning: SHA256 signature mode enabled with zero secret (aka naive mode)
@@ -61,9 +68,10 @@ hello%
 error: sha256 sum not present in parsed data
 hello%
 ```
-Please note that in "naive mode" (without a secret) it is possible that the encoded data stream may have been tampered with and there is no way for software to detect this. So without a secret the SHA256 signature shall not be trusted.
+Please note that this "naive mode" (without a secret) is only intended for testing purposes. In fact, in this mode it is possible that the encoded data stream may have been tampered with and there is no way for software to detect this.
 
-Also the above examples sometime include "2> /dev/stderr" which is used to redirect standard error to get rid of the warning message.
+[Also the above examples includes a few "2> /dev/stderr" which is common shell syntax used to redirect standard error elsewhere. This to get rid of the warning messages.]
+
 
 Using SHA256 with a secret prefix on stdin used as a suffix MAC:
 ```console
@@ -80,15 +88,15 @@ i en laxask%
 1
 ```
 
-Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream and is kept private then a correct SHA256 sum indicates that the encoded data has not been tampered with. When for instance "sju laxar " is used as secret then the sha256 calculation will as indicate mismatch and the exit value is set accordingly.
+Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream (it is assumed to be kept private) then a correct SHA256 sum indicates that the encoded data has not been tampered with. When for instance "sju laxar " is used as secret then the SHA256 calculation will as indicate mismatch and the exit value is set accordingly. Please note that in plaintext mode with the "-s" option the data will be decoded and output on stdout regardless of the result of the SHA256 calculation.
 
 
-# Encryption
+# Crypto
 
 The "-e" option together with "-s" enables AES-CTR encryption:
 ```console
 % echo -n "Xhello" | ./na4 -s 1 -e
-[H1,umzHhU5IZD^iq9jrZEK6983SO_20QsT[-ic^D0KHlVjP]m3Im6GKoL*w^[f]D0hg<v7<q0(YK05*E_9jkYW%
+[H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y
 % echo -n "X[H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y" | ./na4 -d -e -s 1
 hello%
 % echo $?
@@ -102,4 +110,4 @@ error: incorrect password
 
 # Note
 
-The utility follows standard Unix philosophy where lack of error message means success.
+The utility follows standard Unix philosophy where lack of error message means success. As usual the exit value may be used to check if the operation was successful or not.
