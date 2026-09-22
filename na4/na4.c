@@ -653,11 +653,15 @@ static int compare_sha256(SHA256_CTX *sha256)
   return 0;
 }
 
-static int process_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+static int process_frame_sha256_plaintext(SHA256_CTX *sha256,
+                                          uint8_t *buf, int len)
 {
-  if (sha256) {
-   sha256_update(sha256, buf, len);
-  }
+  SHA256_CTX derived_key_ctx;
+
+  sha256_init(&derived_key_ctx);
+  sha256_update(&derived_key_ctx, buf, len);
+  sha256_final(sha256_derived_key, &derived_key_ctx);
+  sha256_derived_key_bytes = 32;
 
   return len;
 }
@@ -806,22 +810,17 @@ int main(int argc, char **argv)
       fprintf(stderr, "warning: SHA256 signature mode enabled "
                       "with zero secret (aka naive mode)\n");
     } else {
-      SHA256_CTX derived_key_ctx;
       int key_bytes;
 
-      sha256_init(&derived_key_ctx);
       key_bytes = stdin_fread_sha256(sha256_secret_bytes,
-                                     process_frame_sha256, 1,
-                                     &derived_key_ctx, NULL);
+                                     process_frame_sha256_plaintext, 1,
+                                     NULL, NULL);
 
       if (key_bytes != sha256_secret_bytes) {
         fprintf(stderr, "error: unable to read secret (%d, %d)\n",
                 key_bytes, sha256_secret_bytes);
         return 1;
       }
-      
-      sha256_final(sha256_derived_key, &derived_key_ctx);
-      sha256_derived_key_bytes = 32;
     }
   }
   
