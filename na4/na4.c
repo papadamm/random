@@ -827,9 +827,9 @@ int main(int argc, char **argv)
   
   if (decode_enabled) {
     return stdin_fread_sha256(OUTPUT_BUFSIZE, decode_frame_sha256, 0,
-                              sha256_enabled, compare_sha256) != 0;
+                              sha256_enabled, compare_sha256) < 0;
   } else {
     return stdin_fread_sha256(INPUT_BUFSIZE, encode_frame_sha256, 0,
-                              sha256_enabled, store_sha256) != 0;
+                              sha256_enabled, store_sha256) < 0;
   }
 }
