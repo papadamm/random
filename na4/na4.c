@@ -113,8 +113,8 @@ static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
 
 /* divide limbs (len) with divisor and store result in rem */
 static int bigint_process(uint8_t *r, int r_len,
-			  uint8_t *limbs, int len,
-			  uint8_t (*f)(uint8_t *limbs, int len))
+                          uint8_t *limbs, int len,
+                          uint8_t (*f)(uint8_t *limbs, int len))
 {
   int r_cnt = 0;
   int i;
@@ -190,40 +190,40 @@ static uint8_t crc4_itu(const uint8_t *data, size_t len)
 }
 
 #define BITS(n) ((n) / 8)
-#define REGULAR(n) (n) /* 0 character header */
+#define REGULAR(n) (n)                      /* 0 character header */
 #define TAIL1(b, c) ((b) + (c ? 1 : 0) + 1) /* 1 character header */
 #define TAIL2(b, c) ((b) + (c ? 1 : 0) + 2) /* 2 character header */
 
 /* map between source encoding length and bits used to generate chars out */
 static uint16_t frame_size[] = {
-  [BITS(8)] = TAIL1(2, 0),    /* 12.41 bits DATA + 4 bits CRC */
+  [BITS(8)] = TAIL1(2, 0),      /* 12.41 bits DATA + 4 bits CRC */
   [BITS(16)] = TAIL1(3, 4),     /* 18.61 bits DATA + 4 bits CRC */
   [BITS(24)] = TAIL2(4, 4),     /* 24.81 bits DATA + 4 bits CRC */
   [BITS(32)] = TAIL2(6, 4),     /* 37.21 bits DATA + 4 bits CRC */
   [BITS(40)] = TAIL2(7, 4),     /* 43.42 bits DATA + 4 bits CRC */
   [BITS(48)] = TAIL2(8, 4),     /* 49.62 bits DATA + 4 bits CRC */
-  [BITS(56)] = TAIL2(10, 0),  /* 62.03 bits DATA + 4 bits CRC */
-  [BITS(64)] = TAIL2(11, 0),  /* 68.23 bits DATA + 4 bits CRC */
+  [BITS(56)] = TAIL2(10, 0),    /* 62.03 bits DATA + 4 bits CRC */
+  [BITS(64)] = TAIL2(11, 0),    /* 68.23 bits DATA + 4 bits CRC */
   [BITS(72)] = TAIL2(12, 4),    /* 74.43 bits DATA + 4 bits CRC */
   [BITS(80)] = TAIL2(13, 4),    /* 80.64 bits DATA + 4 bits CRC */
-  [BITS(88)] = TAIL2(15, 0),  /* 93.04 bits DATA + 4 bits CRC */
+  [BITS(88)] = TAIL2(15, 0),    /* 93.04 bits DATA + 4 bits CRC */
   [BITS(96)] = TAIL2(16, 4),    /* 99.25 bits DATA + 4 bits CRC */
   [BITS(104)] = TAIL2(17, 4),   /* 105.42 bits DATA + 4 bits CRC */
-  [BITS(112)] = TAIL2(19, 0), /* 117.85 bits DATA + 4 bits CRC */
-  [BITS(120)] = TAIL2(20, 0), /* 124.06 bits DATA + 4 bits CRC */
+  [BITS(112)] = TAIL2(19, 0),   /* 117.85 bits DATA + 4 bits CRC */
+  [BITS(120)] = TAIL2(20, 0),   /* 124.06 bits DATA + 4 bits CRC */
   [BITS(128)] = TAIL2(21, 4),   /* 130.26 bits DATA + 4 bits CRC */
   [BITS(136)] = TAIL2(22, 4),   /* 136.46 bits DATA + 4 bits CRC */
-  [BITS(144)] = TAIL2(24, 0), /* 148.87 bits DATA + 4 bits CRC */
+  [BITS(144)] = TAIL2(24, 0),   /* 148.87 bits DATA + 4 bits CRC */
   [BITS(152)] = TAIL2(25, 4),   /* 155.07 bits DATA + 4 bits CRC */
   [BITS(160)] = TAIL2(26, 4),   /* 161.28 bits DATA + 4 bits CRC */
-  [BITS(168)] = TAIL2(28, 0), /* 173.69 bits DATA + 4 bits CRC */
+  [BITS(168)] = TAIL2(28, 0),   /* 173.69 bits DATA + 4 bits CRC */
   [BITS(176)] = TAIL2(29, 4),   /* 179.89 bits DATA + 4 bits CRC */
   [BITS(184)] = TAIL2(30, 4),   /* 186.09 bits DATA + 4 bits CRC */
   [BITS(192)] = TAIL2(31, 4),   /* 192.29 bits DATA + 4 bits CRC */
-  [BITS(200)] = TAIL2(33, 0), /* 204.70 bits DATA + 4 bits CRC */
+  [BITS(200)] = TAIL2(33, 0),   /* 204.70 bits DATA + 4 bits CRC */
   [BITS(208)] = TAIL2(34, 4),   /* 210.91 bits DATA + 4 bits CRC */
   [BITS(216)] = TAIL2(35, 4),   /* 217.11 bits DATA + 4 bits CRC */
-  [BITS(224)] = TAIL2(37, 0), /* 229.52 bits DATA + 4 bits CRC */
+  [BITS(224)] = TAIL2(37, 0),   /* 229.52 bits DATA + 4 bits CRC */
   [BITS(232)] = TAIL2(38, 4),   /* 235.72 bits DATA + 4 bits CRC */
   [BITS(240)] = TAIL2(39, 4),   /* 241.92 bits DATA + 4 bits CRC */
   [BITS(248)] = TAIL1(40, 4),   /* 248.13 bits DATA + 4 bits CRC */
@@ -358,8 +358,8 @@ static int decode_char(int ch)
 
 /* decode incoming ASCII characters, generate binary data */
 static int decode_frame_custom(uint8_t *dst, int dst_len,
-			       uint8_t *buf, int len,
-			       int *dst_bytes,
+                               uint8_t *buf, int len,
+                               int *dst_bytes,
                                int (*handle_custom_tail)(int, uint8_t *, int))
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
@@ -431,7 +431,7 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
   output_length = frame_size[expected_size - 1];
 
   reverse_data(rev, &chars[offs], OUTPUT_BUFSIZE - offs,
-	       frame_size[expected_size - 1] - offs);
+               frame_size[expected_size - 1] - offs);
 
   bigint_process(num, PROCESS_BUFSIZE, rev, OUTPUT_BUFSIZE,
                  bigint_mul77_div256);
@@ -655,9 +655,10 @@ static int compare_sha256(SHA256_CTX *sha256)
 
 static int process_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
 {
- if (sha256) {
+  if (sha256) {
    sha256_update(sha256, buf, len);
   }
+
   return len;
 }
 
@@ -667,7 +668,7 @@ static int encode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
    sha256_update(sha256, buf, len);
   }
 
- return encode_frame_custom(buf, len, 0);
+  return encode_frame_custom(buf, len, 0);
 }
 
 static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
@@ -738,7 +739,7 @@ static int stdin_fread_sha256(int bufsize,
     m = 0;
     if (cnt > 0) {
       if (f)  {
-	m = f(sha256, buf, cnt);
+        m = f(sha256, buf, cnt);
         if (m < 0) {
           return -1;
         }
@@ -750,7 +751,7 @@ static int stdin_fread_sha256(int bufsize,
       cnt -= m;
       goto read_again;
     }
-  
+
     total_bytes += cnt;
     if (num_bufs == 1) {
       break;
@@ -778,23 +779,23 @@ int main(int argc, char **argv)
         fprintf(stdout, "%s: a simple Base77 encoder/decoder\n", argv[0]);
         return 0;
       } else if (strcmp(argv[i], "-s") == 0) {
-	if ((argc >= (i + 2))) {
-	  if (sscanf(argv[i + 1], "%u", &sha256_secret_bytes) == 1) {
-	    if (!sha256_is_enabled()) {
-	      sha256_enable();
-	    }
+        if ((argc >= (i + 2))) {
+          if (sscanf(argv[i + 1], "%u", &sha256_secret_bytes) == 1) {
+            if (!sha256_is_enabled()) {
+              sha256_enable();
+            }
             i += 2;
-	  }
-	}
-	if (sha256_secret_bytes == -1) {
-	  fprintf(stderr, "%s: unable to parse -s argument\n", argv[0]);
-	  return 1;
-	}
-	continue;
+          }
+        }
+        if (sha256_secret_bytes == -1) {
+          fprintf(stderr, "%s: unable to parse -s argument\n", argv[0]);
+          return 1;
+        }
+        continue;
       } else if (strcmp(argv[i], "-d") == 0) {
         decode_enabled = 1;
-	i++;
-	continue;
+        i++;
+        continue;
       }
     }
     break;
@@ -803,11 +804,11 @@ int main(int argc, char **argv)
   if (sha256_secret_bytes >= 0) {
     if (sha256_secret_bytes == 0) {
       fprintf(stderr, "warning: SHA256 signature mode enabled "
-	      "with zero secret (aka naive mode)\n");
+                      "with zero secret (aka naive mode)\n");
     } else {
-      int key_bytes;
-      
       SHA256_CTX derived_key_ctx;
+      int key_bytes;
+
       sha256_init(&derived_key_ctx);
       key_bytes = stdin_fread_sha256(sha256_secret_bytes,
                                      process_frame_sha256, 1,
@@ -815,8 +816,8 @@ int main(int argc, char **argv)
 
       if (key_bytes != sha256_secret_bytes) {
         fprintf(stderr, "unable to read secret (%d, %d)\n",
-		key_bytes, sha256_secret_bytes);
-	return 1;
+                key_bytes, sha256_secret_bytes);
+        return 1;
       }
       
       sha256_final(sha256_derived_key, &derived_key_ctx);
@@ -826,7 +827,7 @@ int main(int argc, char **argv)
   
   if (decode_enabled) {
     return stdin_fread_sha256(OUTPUT_BUFSIZE, decode_frame_sha256, 0,
-			      sha256_enabled, compare_sha256) != 0;
+                              sha256_enabled, compare_sha256) != 0;
   } else {
     return stdin_fread_sha256(INPUT_BUFSIZE, encode_frame_sha256, 0,
                               sha256_enabled, store_sha256) != 0;
