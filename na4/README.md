@@ -1,4 +1,4 @@
-# na4 (base77 encoder/decoder tool with checksum support)
+# na4 (base77 encoder/decoder tool with crypto and checksum)
 
 na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. The encoded data tends to get smaller than Base64. And the checksums makes it more robust.
 
@@ -83,8 +83,23 @@ i en laxask%
 Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream and is kept private then a correct SHA256 sum indicates that the encoded data has not been tampered with. When for instance "sju laxar " is used as secret then the sha256 calculation will as indicate mismatch and the exit value is set accordingly.
 
 
+# Encryption
+
+The "-e" option together with "-s" enables AES-CTR encryption:
+```console
+% echo -n "Xhello" | ./na4 -s 1 -e
+[H1,umzHhU5IZD^iq9jrZEK6983SO_20QsT[-ic^D0KHlVjP]m3Im6GKoL*w^[f]D0hg<v7<q0(YK05*E_9jkYW%
+% echo -n "X[H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y" | ./na4 -d -e -s 1
+hello%
+% echo $?
+0
+% echo -n "Y[H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y" | ./na4 -d -e -s 1
+error: incorrect password
+% echo $?
+1
+```
+
+
 # Note
 
-Please note that the encoded data is not encrypted. Also in the case that the SHA256 sum calculation fails the tool will still output the data.
-
-The utility follows standard Unix philosophy where lack of error message means success. Also if the decoder is used with the "-s" option and the received data stream is lacking SHA256 information this is treated as an error condition.
+The utility follows standard Unix philosophy where lack of error message means success.
