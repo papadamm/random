@@ -75,6 +75,8 @@
 #include <string.h>
 #include <stdint.h>
 
+#define KDF_ITERATIONS 100000
+
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
@@ -84,12 +86,11 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 #define PROCESS_BUFSIZE 33 /* 32 bytes input + 4 bits CRC */
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
 
-/* sha256 enablement */
-void *sha256_enabled;
-static int sha256_is_enabled(void)
-{
-  return !!sha256_enabled;
-}
+int na4_aes256_enabled;
+int na4_sha256_enabled;
+int na4_secret_enabled;
+
+int na4_crypto_header_parsed;
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
@@ -423,6 +424,14 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
     is_custom_tail = encode_char_top_64(7);
     offs = 2;
     expected_size = chars[1] + 3 + 1;
+  } else if (encode_char(chars[0]) == encode_char_top_64(6)) {
+    if (chars[1] != (20 - 3)) {
+      fprintf(stderr, "error: crypto tail length char mismatch\n");
+      return -1;
+    }
+    is_custom_tail = encode_char_top_64(6);
+    offs = 2;
+    expected_size = chars[1] + 3 + 1;
   } else {
     fprintf(stderr, "error: unsupported tail character\n");
     return -1;
@@ -458,7 +467,9 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
 
   if (is_custom_tail) {
     if (handle_custom_tail) {
-      handle_custom_tail(is_custom_tail, &num[1], n);
+      if (handle_custom_tail(is_custom_tail, &num[1], n) < 0) {
+	return -1;
+      }
     }
     
     if (dst_bytes)
@@ -600,11 +611,31 @@ uint8_t sha256_derived_key[32];
 int sha256_stored_sum_bytes = 0;
 uint8_t sha256_stored_sum[32];
 
-static void sha256_enable(void)
-{
-  sha256_enabled = &sha256_global_ctx;
-  sha256_init(sha256_enabled);
-}
+/* AES encoder implementation (thanks Gemini) */
+
+#define AES256_ROUNDS 14
+#define AES256_EXP_KEY_SIZE (16 * (AES256_ROUNDS + 1)) /* 240 bytes */
+
+typedef struct {
+  uint8_t round_keys[AES256_EXP_KEY_SIZE];
+} aes256_ctx_t;
+
+aes256_ctx_t na4_aes256_ctx;
+
+static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32]);
+
+/* AES-CTR implementation (thanks Gemini) */
+
+typedef struct {
+  uint8_t block[16];   /* bytes 0..11: nonce, bytes 12..15: big-endian cnt */
+  uint32_t counter;    /* integer tracker */
+} na4_ctr_state_t;
+
+na4_ctr_state_t na4_ctr_state;
+static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12]);
+static void aes_ctr_process_frame(uint8_t *data, size_t len,
+                                  na4_ctr_state_t *ctr,
+                                  const aes256_ctx_t *aes_ctx);
 
 /* Simple Suffix-MAC with SHA-256 */
 /* when encoding, store the sha256 sum */
@@ -639,7 +670,7 @@ static int compare_sha256(SHA256_CTX *sha256)
     sha256_final(sha256_res, sha256);
   }
 
-  if (sha256_stored_sum_bytes == 0) {
+  if (sha256_stored_sum_bytes != 32) {
     fprintf(stderr, "error: sha256 sum not present in parsed data\n");
     return -1;
   }
@@ -663,17 +694,26 @@ static int process_frame_sha256_plaintext(SHA256_CTX *sha256,
   sha256_final(sha256_derived_key, &derived_key_ctx);
   sha256_derived_key_bytes = 32;
 
+  memset(buf, 0, len); /* zero out the secret now when done */
+  memset(&derived_key_ctx, 0, sizeof(SHA256_CTX));
+
   return len;
 }
 
 static int encode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
 {
+  if (na4_aes256_enabled) {
+    aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
+  }
+
   if (sha256) {
    sha256_update(sha256, buf, len);
   }
 
   return encode_frame_custom(buf, len, 0);
 }
+
+static int process_frame_sha256_decrypt_late(uint8_t *buf, int len);
 
 static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
 {
@@ -691,6 +731,9 @@ static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
       sha256_stored_sum_bytes = 32;
     }
   }
+  if (tail_type == encode_char_top_64(6)) {
+    return process_frame_sha256_decrypt_late(buf, len);
+  }
   return 0;
 }
 
@@ -706,9 +749,18 @@ static int decode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
     return res;
   }
 
+  if (na4_aes256_enabled && !na4_crypto_header_parsed) {
+    fprintf(stderr, "error: stream is not encrypted, but -e was specified\n");
+    return  -1;
+  }
+
   if ((res > 0) && (bytes_out > 0)) {
     if (sha256) {
       sha256_update(sha256, frame_out, bytes_out);
+    }
+    if (na4_aes256_enabled) {
+      aes_ctr_process_frame(frame_out, bytes_out,
+                            &na4_ctr_state, &na4_aes256_ctx);
     }
     fwrite(frame_out, bytes_out, 1, stdout);
   }
@@ -771,6 +823,422 @@ static int stdin_fread_sha256(int bufsize,
   return total_bytes;
 }
 
+/* KDF key handling, thanks Gemini */
+
+/* Header metadata packed into the first frame */
+typedef struct {
+  uint8_t salt[12];        /* Nonce / KDF Salt */
+  uint8_t check_token[8];  /* Fast verification tag */
+} na4_crypto_hdr_t;
+
+/* Holds derived active keys */
+typedef struct {
+  uint8_t aes_key[32];     /* AES-256-CTR key */
+  uint8_t mac_key[32];     /* Stream integrity MAC key */
+} na4_keys_t;
+
+static void kdf_extract_master_early(SHA256_CTX *ctx,
+                                     const uint8_t *secret, size_t secret_len)
+{
+  /* Round 1A: H(Secret) */
+  sha256_init(ctx);
+  sha256_update(ctx, secret, secret_len);
+}
+
+/*
+ * Helper: PBKDF2-like iterated hashing using your SHA256 primitives.
+ * Performs KDF_ITERATIONS rounds of SHA-256 over (salt || secret).
+ */
+static void kdf_extract_master_late(SHA256_CTX *base_ctx,
+                                    uint8_t master_prk[32],
+                                    const uint8_t *salt, size_t salt_len)
+{
+  SHA256_CTX ctx;
+  uint32_t i;
+
+  /* Round 1B: H(Salt) */
+  memcpy(&ctx, base_ctx, sizeof(SHA256_CTX));
+  sha256_update(&ctx, salt, salt_len);
+  sha256_final(master_prk, &ctx);
+
+  memset(base_ctx, 0, sizeof(SHA256_CTX));
+
+  /* --- Subsequent Rounds (2 .. KDF_ITERATIONS) --- */
+  /* Pure iterated hash stretching: H(H(H(...))) */
+  for (i = 1; i < KDF_ITERATIONS; i++) {
+    sha256_init(&ctx);
+    sha256_update(&ctx, master_prk, 32); /* Only hashing the 32-byte digest */
+    sha256_final(master_prk, &ctx);
+  }
+
+  memset(&ctx, 0, sizeof(SHA256_CTX));
+}
+
+/*
+ * Derives AES Key, MAC Key, and the 8-byte Check Token from the master key.
+ */
+static void kdf_expand_keys(na4_keys_t *keys,
+                            uint8_t check_token[8],
+                            const uint8_t master_prk[32])
+{
+  SHA256_CTX ctx;
+  uint8_t h[32];
+
+  /* 1. Derive AES-256 Key */
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_prk, 32);
+  sha256_update(&ctx, (const uint8_t *)"aes-enc", 7);
+  sha256_final(keys->aes_key, &ctx);
+
+  /* 2. Derive MAC Key */
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_prk, 32);
+  sha256_update(&ctx, (const uint8_t *)"mac-auth", 8);
+  sha256_final(keys->mac_key, &ctx);
+
+  /* 3. Derive Check Token (first 8 bytes of H(Master || "chk")) */
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_prk, 32);
+  sha256_update(&ctx, (const uint8_t *)"chk-tok", 7);
+  sha256_final(h, &ctx);
+
+  memcpy(check_token, h, 8);
+
+  /* Derive 12-byte CTR Nonce */
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_prk, 32);
+  sha256_update(&ctx, (const uint8_t *)"ctr-nonce", 9);
+  sha256_final(h, &ctx);
+
+  ctr_init(&na4_ctr_state, h);
+
+  /* Clean up sensitive stack memory */
+  memset(h, 0, sizeof(h));
+}
+
+static int crypto_init_encoder(na4_crypto_hdr_t *hdr, na4_keys_t *keys,
+                               const uint8_t *secret, size_t secret_len)
+{
+  SHA256_CTX base_ctx;
+  uint8_t master_prk[32];
+  FILE *f;
+
+  /* 1. Generate 12 bytes of fresh random salt from CSPRNG */
+  f = fopen("/dev/urandom", "rb");
+  if (!f || fread(hdr->salt, 1, 12, f) != 12) {
+    if (f) fclose(f);
+      return -1;
+  }
+  fclose(f);
+
+  /* 2. Compute iterated master key */
+  kdf_extract_master_early(&base_ctx, secret, secret_len);
+  kdf_extract_master_late(&base_ctx, master_prk, hdr->salt, 12);
+
+  /* 3. Expand into AES key, MAC key, and the 8-byte check token */
+  kdf_expand_keys(keys, hdr->check_token, master_prk);
+  memset(master_prk, 0, sizeof(master_prk));
+
+  /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) as Frame 0 */
+  encode_frame_custom((void *)hdr, 20, encode_char_top_64(6));
+  return 0;
+}
+
+static int crypto_init_decoder(SHA256_CTX *base_ctx,
+                               const na4_crypto_hdr_t *hdr, na4_keys_t *keys)
+{
+  uint8_t master_prk[32];
+  uint8_t computed_token[8];
+
+  if (!na4_aes256_enabled) {
+    if (na4_secret_enabled) {
+      fprintf(stderr, "error: encrypted stream requires -e\n");
+    } else {
+      fprintf(stderr,
+              "error: stream is encrypted; secret required (-s / -e)\n");
+    }
+    return -1;
+  }
+
+  /* 1. Recompute the master key using the salt read from the file */
+  kdf_extract_master_late(base_ctx, master_prk, hdr->salt, 12);
+
+  /* 2. Expand keys and compute what the check token SHOULD be */
+  kdf_expand_keys(keys, computed_token, master_prk);
+  memset(master_prk, 0, sizeof(master_prk));
+
+  /* 3. Constant-time comparison: did the password match? */
+  /* (Use volatile or a loop to avoid timing optimization) */
+  uint8_t diff = 0;
+  for (int i = 0; i < 8; i++) {
+    diff |= (computed_token[i] ^ hdr->check_token[i]);
+  }
+
+  if (diff != 0) {
+    /* Wrong password! Clean up keys and fail immediately */
+    memset(keys, 0, sizeof(na4_keys_t));
+    fprintf(stderr, "error: incorrect password\n");
+    return -1; 
+  }
+
+  /* Token matched! Ready to start decrypting frames straight to stdout */
+  return 0;
+}
+
+SHA256_CTX sha256_early_decode_ctx;
+
+static int process_frame_sha256_encrypt(SHA256_CTX *sha256,
+                                        uint8_t *buf, int len)
+{
+  na4_keys_t crypto_keys = {};
+  na4_crypto_hdr_t crypto_hdr = {};
+
+  crypto_init_encoder(&crypto_hdr, &crypto_keys, buf, len);
+
+  sha256_init(sha256);
+  sha256_update(sha256, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
+
+  aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
+
+  memset(buf, 0, len); /* zero out the secret now when done */
+  memset(&crypto_hdr, 0, sizeof(crypto_hdr));
+  memset(&crypto_keys, 0, sizeof(crypto_keys));
+  return len;
+}
+
+static int process_frame_sha256_decrypt_early(SHA256_CTX *sha256,
+					      uint8_t *buf, int len)
+{
+  kdf_extract_master_early(&sha256_early_decode_ctx, buf, len);
+  memset(buf, 0, len); /* zero out the secret now when done */
+  return len;
+}
+
+static int process_frame_sha256_decrypt_late(uint8_t *buf, int len)
+{
+  na4_keys_t crypto_keys = {};
+  na4_crypto_hdr_t crypto_hdr = {};
+  int ret = -1;
+
+  if (!na4_crypto_header_parsed) {
+    memcpy(&crypto_hdr, buf, len);
+    ret = crypto_init_decoder(&sha256_early_decode_ctx,
+                              &crypto_hdr, &crypto_keys);
+
+    if (ret == 0) {
+      sha256_init(&sha256_global_ctx);
+      sha256_update(&sha256_global_ctx,
+                    crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
+
+      aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
+      na4_crypto_header_parsed = 1;
+    }
+    memset(&crypto_hdr, 0, sizeof(crypto_hdr));
+    memset(&crypto_keys, 0, sizeof(crypto_keys));
+  }
+  return ret;
+}
+
+static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12])
+{
+  memcpy(state->block, nonce, 12);
+  state->counter = 0;
+  state->block[12] = 0;
+  state->block[13] = 0;
+  state->block[14] = 0;
+  state->block[15] = 0;
+}
+
+static void ctr_increment(na4_ctr_state_t *state)
+{
+  state->counter++;
+  /* Write 32-bit counter in Big-Endian format */
+  state->block[12] = (uint8_t)(state->counter >> 24);
+  state->block[13] = (uint8_t)(state->counter >> 16);
+  state->block[14] = (uint8_t)(state->counter >> 8);
+  state->block[15] = (uint8_t)(state->counter & 0xFF);
+}
+
+/* Forward S-Box table */
+static const uint8_t aes_sbox[256] = {
+  0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5,
+  0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+  0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0,
+  0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+  0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc,
+  0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+  0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a,
+  0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+  0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0,
+  0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+  0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b,
+  0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+  0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85,
+  0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+  0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5,
+  0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+  0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17,
+  0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+  0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88,
+  0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+  0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c,
+  0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+  0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9,
+  0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+  0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6,
+  0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+  0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e,
+  0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+  0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94,
+  0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+  0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68,
+  0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
+};
+
+/* Round constants for key expansion */
+static const uint8_t aes_rcon[10] = {
+  0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
+};
+
+/* Galois Field GF(2^8) multiplication by 2 */
+static inline uint8_t xtime(uint8_t x)
+{
+  return (uint8_t)((x << 1) ^ (((x >> 7) & 1) * 0x1b));
+}
+
+/* Expands a 32-byte (256-bit) key into 240 bytes of round keys */
+static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32])
+{
+  uint8_t temp[4];
+  int i, rcon_idx = 0;
+
+  memcpy(ctx->round_keys, key, 32);
+
+  for (i = 32; i < AES256_EXP_KEY_SIZE; i += 4) {
+    temp[0] = ctx->round_keys[i - 4];
+    temp[1] = ctx->round_keys[i - 3];
+    temp[2] = ctx->round_keys[i - 2];
+    temp[3] = ctx->round_keys[i - 1];
+
+    if (i % 32 == 0) {
+      /* RotWord + SubWord + Rcon */
+      uint8_t t = temp[0];
+      temp[0] = aes_sbox[temp[1]] ^ aes_rcon[rcon_idx++];
+      temp[1] = aes_sbox[temp[2]];
+      temp[2] = aes_sbox[temp[3]];
+      temp[3] = aes_sbox[t];
+    } else if (i % 32 == 16) {
+      /* SubWord only */
+      temp[0] = aes_sbox[temp[0]];
+      temp[1] = aes_sbox[temp[1]];
+      temp[2] = aes_sbox[temp[2]];
+      temp[3] = aes_sbox[temp[3]];
+    }
+
+    ctx->round_keys[i + 0] = ctx->round_keys[i - 32] ^ temp[0];
+    ctx->round_keys[i + 1] = ctx->round_keys[i - 31] ^ temp[1];
+    ctx->round_keys[i + 2] = ctx->round_keys[i - 30] ^ temp[2];
+    ctx->round_keys[i + 3] = ctx->round_keys[i - 29] ^ temp[3];
+  }
+}
+
+/* Encrypts one 16-byte block from `in` to `out` */
+static void aes256_encrypt_block(const aes256_ctx_t *ctx,
+                                 const uint8_t in[16], uint8_t out[16])
+{
+  uint8_t state[16];
+  const uint8_t *rk = ctx->round_keys;
+  int round, i;
+
+  /* AddRoundKey (Round 0) */
+  for (i = 0; i < 16; i++) {
+      state[i] = in[i] ^ rk[i];
+  }
+  rk += 16;
+
+  /* Rounds 1 to 13 */
+  for (round = 1; round < AES256_ROUNDS; round++) {
+    uint8_t t0, t1, t2, t3;
+
+    /* SubBytes + ShiftRows */
+    t0 = aes_sbox[state[0]];  t1 = aes_sbox[state[5]];
+    t2 = aes_sbox[state[10]]; t3 = aes_sbox[state[15]];
+
+    state[4] = aes_sbox[state[4]];   state[5] = aes_sbox[state[9]];
+    state[6] = aes_sbox[state[14]];  state[7] = aes_sbox[state[3]];
+
+    state[8] = aes_sbox[state[8]];   state[9] = aes_sbox[state[13]];
+    state[10] = aes_sbox[state[2]];  state[11] = aes_sbox[state[7]];
+
+    state[12] = aes_sbox[state[12]]; state[13] = aes_sbox[state[1]];
+    state[14] = aes_sbox[state[6]];  state[15] = aes_sbox[state[11]];
+
+    state[0] = t0; state[1] = t1; state[2] = t2; state[3] = t3;
+
+    /* MixColumns + AddRoundKey */
+    for (i = 0; i < 16; i += 4) {
+      uint8_t a0 = state[i], a1 = state[i + 1], a2 = state[i + 2], a3 = state[i + 3];
+      uint8_t h0 = xtime(a0 ^ a1);
+      uint8_t h1 = xtime(a1 ^ a2);
+      uint8_t h2 = xtime(a2 ^ a3);
+      uint8_t h3 = xtime(a3 ^ a0);
+      uint8_t all = a0 ^ a1 ^ a2 ^ a3;
+
+      state[i + 0] = a0 ^ all ^ h0 ^ rk[i + 0];
+      state[i + 1] = a1 ^ all ^ h1 ^ rk[i + 1];
+      state[i + 2] = a2 ^ all ^ h2 ^ rk[i + 2];
+      state[i + 3] = a3 ^ all ^ h3 ^ rk[i + 3];
+    }
+    rk += 16;
+  }
+
+  /* Final Round (Round 14): SubBytes + ShiftRows + AddRoundKey (No MixColumns) */
+  out[0]  = aes_sbox[state[0]]  ^ rk[0];
+  out[1]  = aes_sbox[state[5]]  ^ rk[1];
+  out[2]  = aes_sbox[state[10]] ^ rk[2];
+  out[3]  = aes_sbox[state[15]] ^ rk[3];
+
+  out[4]  = aes_sbox[state[4]]  ^ rk[4];
+  out[5]  = aes_sbox[state[9]]  ^ rk[5];
+  out[6]  = aes_sbox[state[14]] ^ rk[6];
+  out[7]  = aes_sbox[state[3]]  ^ rk[7];
+
+  out[8]  = aes_sbox[state[8]]  ^ rk[8];
+  out[9]  = aes_sbox[state[13]] ^ rk[9];
+  out[10] = aes_sbox[state[2]]  ^ rk[10];
+  out[11] = aes_sbox[state[7]]  ^ rk[11];
+
+  out[12] = aes_sbox[state[12]] ^ rk[12];
+  out[13] = aes_sbox[state[1]]  ^ rk[13];
+  out[14] = aes_sbox[state[6]]  ^ rk[14];
+  out[15] = aes_sbox[state[11]] ^ rk[15];
+}
+
+static void aes_ctr_process_frame(uint8_t *data, size_t len,
+                                  na4_ctr_state_t *ctr,
+                                  const aes256_ctx_t *aes_ctx)
+{
+  uint8_t keystream[16];
+  size_t i, chunk;
+
+  while (len > 0) {
+    /* Generate 16 bytes of keystream by encrypting the current counter blk */
+    aes256_encrypt_block(aes_ctx, ctr->block, keystream);
+
+    /* XOR input buffer in-place */
+    chunk = (len < 16) ? len : 16;
+    for (i = 0; i < chunk; i++) {
+        data[i] ^= keystream[i];
+    }
+
+    /* Advance the 32-bit counter for the next 16-byte block */
+    ctr_increment(ctr);
+
+    data += chunk;
+    len -= chunk;
+  }
+}
+
 int main(int argc, char **argv)
 {
   int decode_enabled = 0;
@@ -785,9 +1253,7 @@ int main(int argc, char **argv)
       } else if (strcmp(argv[i], "-s") == 0) {
         if ((argc >= (i + 2))) {
           if (sscanf(argv[i + 1], "%u", &sha256_secret_bytes) == 1) {
-            if (!sha256_is_enabled()) {
-              sha256_enable();
-            }
+            na4_sha256_enabled = 1;
             i += 2;
           }
         }
@@ -800,9 +1266,18 @@ int main(int argc, char **argv)
         decode_enabled = 1;
         i++;
         continue;
+      } else if (strcmp(argv[i], "-e") == 0) {
+        na4_aes256_enabled = 1;
+        i++;
+        continue;
       }
     }
     break;
+  }
+
+  /* initialize keys for simple plaintext case (without encryption) */
+  if (na4_sha256_enabled && !na4_aes256_enabled) {
+    sha256_init(&sha256_global_ctx);
   }
 
   if (sha256_secret_bytes >= 0) {
@@ -812,23 +1287,43 @@ int main(int argc, char **argv)
     } else {
       int key_bytes;
 
-      key_bytes = stdin_fread_sha256(sha256_secret_bytes,
-                                     process_frame_sha256_plaintext, 1,
-                                     NULL, NULL);
+      if (na4_aes256_enabled) {
+        if (decode_enabled) {
+          key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+                                         process_frame_sha256_decrypt_early, 1,
+                                         NULL, NULL);
+        } else {
+          key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+                                         process_frame_sha256_encrypt, 1,
+                                         &sha256_global_ctx, NULL);
+        }
+      } else {
+        key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+                                       process_frame_sha256_plaintext, 1,
+                                       NULL, NULL);
+      }
 
       if (key_bytes != sha256_secret_bytes) {
         fprintf(stderr, "error: unable to read secret (%d, %d)\n",
                 key_bytes, sha256_secret_bytes);
         return 1;
       }
+
+      na4_secret_enabled = 1;
     }
   }
-  
+
+  if (na4_aes256_enabled && !na4_secret_enabled) { 
+    fprintf(stderr,
+            "error: unable to use crypto without a secret (-s / -e)\n");
+    return 1;
+  }
+
   if (decode_enabled) {
     return stdin_fread_sha256(OUTPUT_BUFSIZE, decode_frame_sha256, 0,
-                              sha256_enabled, compare_sha256) < 0;
+                              &sha256_global_ctx, compare_sha256) < 0;
   } else {
     return stdin_fread_sha256(INPUT_BUFSIZE, encode_frame_sha256, 0,
-                              sha256_enabled, store_sha256) < 0;
+                              &sha256_global_ctx, store_sha256) < 0;
   }
 }
