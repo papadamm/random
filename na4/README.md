@@ -1,12 +1,19 @@
 # na4 (base77 encoder/decoder tool with checksum support)
+
 na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. The encoded data tends to get smaller than Base64. And the checksums makes it more robust.
+
+
+# Building 
 
 There is no Makefile, but with almost no dependencies building the tool is very simple:
 ```console
 % gcc -Wall -o na4 na4.c
 ```
 
-Quick tutorial to encode and decode data:
+
+# Tutorial
+
+Encode and decode data like this:
 ```console
 % echo -n hello | ./na4
 _216Hb[0W}%
@@ -15,6 +22,25 @@ hello%
 % echo -n hello again | ./na4 | ./na4 -d
 hello again%
 ```
+
+
+# Efficiency
+
+Compare encoding efficiency of base77 with base64 like this:
+```console
+% seq 539 | wc -c
+    2048
+% seq 539 | uuencode -m - | wc -c 
+    2792
+% seq 539 | ./na4 | wc -c  
+    2688
+% seq 539 | ./na4 -s 0 | wc -c
+warning: SHA256 signature mode enabled with zero secret (aka naive mode)
+    2736
+```
+
+
+# SHA256
 
 Using the SHA256 feature in "naive mode":
 ```console
@@ -39,7 +65,6 @@ Please note that in "naive mode" (without a secret) it is possible that the enco
 
 Also the above examples sometime include "2> /dev/stderr" which is used to redirect standard error to get rid of the warning message.
 
-
 Using SHA256 with a secret prefix on stdin used as a suffix MAC:
 ```console
 % echo -n "sex laxar i en laxask" | ./na4 -s 10
@@ -49,6 +74,9 @@ i en laxask%
 ```
 
 Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream and is kept private then a correct SHA256 sum indicates that the encoded data has not been tampered with.
+
+
+# Note
 
 Please note that the encoded data is not encrypted. Also in the case that the SHA256 sum calculation fails the tool will still output the data.
 
