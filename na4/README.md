@@ -32,7 +32,7 @@ hello%
 % echo -n hello | ./na4 -s 0 2> /dev/null| ./na4 -d -s 0 2> /dev/null
 hello%
 % echo -n hello | ./na4 | ./na4 -d -s 0
-sha256 sum not present in parsed data
+error: sha256 sum not present in parsed data
 hello%
 ```
 Please note that in "naive mode" (without a secret) it is possible that the encoded data stream may have been tampered with and there is no way for software to detect this. So without a secret the SHA256 signature shall not be trusted.
