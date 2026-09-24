@@ -250,6 +250,8 @@ static void output_tail(char tail1, char tail2, uint8_t *buf, int len)
   for (i = 0; i < (len - adj); i++) {
     printf("%c", encode_char(buf[i]));
   }
+
+  fflush(stdout);
 }
 
 static void reverse_data(uint8_t *dst, uint8_t *src,
@@ -778,6 +780,7 @@ static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
                             &na4_ctr_state, &na4_aes256_ctx);
     }
     fwrite(frame_out, bytes_out, 1, stdout);
+    fflush(stdout);
   }
   return res;
 }
