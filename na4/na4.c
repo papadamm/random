@@ -88,7 +88,6 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 
 int na4_aes256_enabled;
 int na4_sha256_enabled;
-int na4_secret_enabled;
 
 int na4_crypto_header_parsed;
 
@@ -1038,7 +1037,7 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
   uint8_t computed_token[8];
 
   if (!na4_aes256_enabled) {
-    if (na4_secret_enabled) {
+    if (na4_sha256_enabled) {
       fprintf(stderr, "error: encrypted stream requires -e\n");
     } else {
       fprintf(stderr,
@@ -1360,6 +1359,7 @@ int main(int argc, char **argv)
 {
   int decode_enabled = 0;
   int secret_bytes = -1;
+  int key_bytes;
   int i = 1;
 
   while(1) {
@@ -1395,36 +1395,32 @@ int main(int argc, char **argv)
   if (secret_bytes >= 0) {
     if (secret_bytes == 0) {
       fprintf(stderr, "warning: using potentially unsafe 0-byte secret\n");
-    } else {
-      int key_bytes;
+    }
 
-      if (na4_aes256_enabled) {
-        if (decode_enabled) {
-          key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
-                                         secret_bytes, process_secret,
-                                         finish_sha256_decrypt);
-        } else {
-          key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
-                                         secret_bytes, process_secret,
-                                         finish_sha256_encrypt);
-        }
+    if (na4_aes256_enabled) {
+      if (decode_enabled) {
+        key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+                                       secret_bytes, process_secret,
+                                       finish_sha256_decrypt);
       } else {
         key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
                                        secret_bytes, process_secret,
-                                       finish_sha256_plaintext);
+                                       finish_sha256_encrypt);
       }
+    } else {
+      key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+                                     secret_bytes, process_secret,
+                                     finish_sha256_plaintext);
+    }
 
-      if (key_bytes != secret_bytes) {
-        fprintf(stderr, "error: unable to read secret (%d, %d)\n",
-                key_bytes, secret_bytes);
-        return 1;
-      }
-
-      na4_secret_enabled = 1;
+    if (key_bytes != secret_bytes) {
+      fprintf(stderr, "error: unable to read secret (%d, %d)\n",
+              key_bytes, secret_bytes);
+      return 1;
     }
   }
 
-  if (na4_aes256_enabled && !na4_secret_enabled) { 
+  if (na4_aes256_enabled && !na4_sha256_enabled) { 
     fprintf(stderr,
             "error: unable to use crypto without a secret (-s / -e)\n");
     return 1;
