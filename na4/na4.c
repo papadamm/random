@@ -639,8 +639,9 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 
 /* Simple Suffix-MAC with SHA-256 */
 /* when encoding, store the sha256 sum */
-static int store_sha256(SHA256_CTX *sha256)
+static int store_sha256(void *handle)
 {
+  SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
 
   /* no need to store SHA256 when "-s" is missing */
@@ -663,8 +664,9 @@ static int store_sha256(SHA256_CTX *sha256)
 }
 
 /* when decoding, compare with the stored sum */
-static int compare_sha256(SHA256_CTX *sha256)
+static int compare_sha256(void *handle)
 {
+  SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
 
   /* no need to compare SHA256 when "-s" is missing */
@@ -694,7 +696,7 @@ static int compare_sha256(SHA256_CTX *sha256)
   return 0;
 }
 
-static int process_frame_sha256_plaintext(SHA256_CTX *sha256,
+static int process_frame_sha256_plaintext(void *handle,
                                           uint8_t *buf, int len)
 {
   SHA256_CTX derived_key_ctx;
@@ -710,8 +712,10 @@ static int process_frame_sha256_plaintext(SHA256_CTX *sha256,
   return len;
 }
 
-static int encode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
 {
+  SHA256_CTX *sha256 = handle;
+
   if (na4_aes256_enabled) {
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
   }
@@ -747,8 +751,9 @@ static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
   return 0;
 }
 
-static int decode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
+static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
 {
+  SHA256_CTX *sha256 = handle;
   uint8_t frame_out[INPUT_BUFSIZE];
   int bytes_out = 0;
   int res = 0;
@@ -781,15 +786,22 @@ static int decode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
 
 static uint8_t buf[MAX_BUFSIZE];
 
-static int stdin_fread_sha256(int bufsize,
-                              int (*f)(SHA256_CTX *, uint8_t *, int),
-			      int num_bufs,
-                              SHA256_CTX *sha256,
-                              int (*c)(SHA256_CTX *))
+static int stdin_fread(void *handle,
+		       int (*c)(void *),
+		       int bufsize,
+		       int (*f)(void *, uint8_t *, int),
+		       int num_bufs,
+		       int (*e)(void *))
 {
   int total_bytes = 0;
   int cnt;
   int n, m;
+
+  if (c) {
+    if (c(handle) < 0) {
+      return -1;
+    }
+  }
 
   do {
     memset(buf, 0, bufsize);
@@ -807,7 +819,7 @@ static int stdin_fread_sha256(int bufsize,
     m = 0;
     if (cnt > 0) {
       if (f)  {
-        m = f(sha256, buf, cnt);
+        m = f(handle, buf, cnt);
         if (m < 0) {
           return -1;
         }
@@ -826,8 +838,8 @@ static int stdin_fread_sha256(int bufsize,
     }
   } while (n > 0);
 
-  if (c && sha256) {
-    if (c(sha256) < 0) {
+  if (e) {
+    if (e(handle) < 0) {
       return -1;
     }
   }
@@ -999,9 +1011,10 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
 
 SHA256_CTX sha256_early_decode_ctx;
 
-static int process_frame_sha256_encrypt(SHA256_CTX *sha256,
+static int process_frame_sha256_encrypt(void *handle,
                                         uint8_t *buf, int len)
 {
+  SHA256_CTX *sha256 = handle;
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
@@ -1018,8 +1031,8 @@ static int process_frame_sha256_encrypt(SHA256_CTX *sha256,
   return len;
 }
 
-static int process_frame_sha256_decrypt_early(SHA256_CTX *sha256,
-					      uint8_t *buf, int len)
+static int process_frame_sha256_decrypt_early(void *handle,
+                                              uint8_t *buf, int len)
 {
   kdf_extract_master_early(&sha256_early_decode_ctx, buf, len);
   memset(buf, 0, len); /* zero out the secret now when done */
@@ -1307,18 +1320,21 @@ int main(int argc, char **argv)
 
       if (na4_aes256_enabled) {
         if (decode_enabled) {
-          key_bytes = stdin_fread_sha256(secret_bytes,
-                                         process_frame_sha256_decrypt_early, 1,
-                                         NULL, NULL);
+          key_bytes = stdin_fread(NULL, NULL,
+                                  secret_bytes,
+                                  process_frame_sha256_decrypt_early,
+                                  1, NULL);
         } else {
-          key_bytes = stdin_fread_sha256(secret_bytes,
-                                         process_frame_sha256_encrypt, 1,
-                                         &sha256_global_ctx, NULL);
+          key_bytes = stdin_fread(&sha256_global_ctx, NULL,
+                                  secret_bytes,
+                                  process_frame_sha256_encrypt,
+                                  1, NULL);
         }
       } else {
-        key_bytes = stdin_fread_sha256(secret_bytes,
-                                       process_frame_sha256_plaintext, 1,
-                                       NULL, NULL);
+        key_bytes = stdin_fread(&sha256_global_ctx, NULL,
+                                secret_bytes,
+                                process_frame_sha256_plaintext,
+                                1, NULL);
       }
 
       if (key_bytes != secret_bytes) {
@@ -1338,10 +1354,12 @@ int main(int argc, char **argv)
   }
 
   if (decode_enabled) {
-    return stdin_fread_sha256(OUTPUT_BUFSIZE, decode_frame_sha256, 0,
-                              &sha256_global_ctx, compare_sha256) < 0;
+    return stdin_fread(&sha256_global_ctx, NULL,
+                      OUTPUT_BUFSIZE, decode_frame_sha256,
+                      0, compare_sha256) < 0;
   } else {
-    return stdin_fread_sha256(INPUT_BUFSIZE, encode_frame_sha256, 0,
-                              &sha256_global_ctx, store_sha256) < 0;
+    return stdin_fread(&sha256_global_ctx, NULL,
+                       INPUT_BUFSIZE, encode_frame_sha256,
+                       0, store_sha256) < 0;
   }
 }
