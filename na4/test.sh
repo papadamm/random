@@ -79,6 +79,76 @@ do
   run_test_plaintext $f
 done
 
+run_tests_empty()
+{
+  /bin/echo "# Running empty data tests"
+
+  /bin/echo -n "# 1A. Plaintext encode empty data string (zero exit code) "
+  encoded=`/bin/echo -n "" | ./na4`
+  test $? -eq 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 1B. Plaintext encode empty data string (no output) "
+  test -z "$encoded"
+  echo_pass_fail_exit $? "$encoded"
+
+  /bin/echo -n "# 2A. Plaintext decode (zero exit code) "
+  decoded=`/bin/echo -n "$encoded" | ./na4 -d`
+  test $? -eq 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 2B. Plaintext decode empty data string (no output) "
+  test -z "$decoded"
+  echo_pass_fail_exit $? "$decoded"
+
+  /bin/echo -n "# 3A. Encode empty data and empty secret (zero exit code) "
+  encoded=`/bin/echo -n "" | ./na4 -s 0 2> /dev/null`
+  test $? -eq 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 3B. Encode empty data and empty secret (no output) "
+  test -z "$encoded"
+  echo_pass_fail_exit $? "$encoded"
+
+  /bin/echo -n "# 4A. Decode empty data and empty secret (should fail) "
+  decoded=`/bin/echo -n "" | ./na4 -d -s 0 2> /dev/null`
+  test $? -ne 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 4B. Decode empty data and empty secret (no output) "
+  test -z "$decoded"
+  echo_pass_fail_exit $? "$decoded"
+
+  /bin/echo -n "# 5A. Encode empty data/secret and encrypt (zero exit code) "
+  encoded=`/bin/echo -n "" | ./na4 -s 0 -e 2> /dev/null`
+  test $? -eq 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 5B. Encode empty data/secret and encrypt (need output) "
+  test -n "$encoded"
+  echo_pass_fail_exit $? "$encoded"
+
+  /bin/echo -n "# 6A. Decode empty data/secret as encrypted (should fail) "
+  decoded=`/bin/echo -n "" | ./na4 -d -s 0 -e 2> /dev/null`
+  test $? -ne 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 6B. Decode empty data/secret as encrypted (no output) "
+  test -z "$decoded"
+  echo_pass_fail_exit $? "$decoded"
+
+  /bin/echo -n "# 7A. Decode encoded empty data/secret (zero exit code) "
+  decoded=`/bin/echo -n "$encoded" | ./na4 -d -s 0 -e 2> /dev/null`
+  test $? -eq 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 7B. Decode encoded empty data/secret (no output) "
+  test -z "$decoded"
+  echo_pass_fail_exit $? "$decoded"
+}
+
+run_tests_empty
+
 run_test_password() {
   local nbytes_data="$1"
   local nbytes_password="$2"
