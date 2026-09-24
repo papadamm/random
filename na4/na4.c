@@ -1254,7 +1254,7 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 int main(int argc, char **argv)
 {
   int decode_enabled = 0;
-  int sha256_secret_bytes = -1;
+  int secret_bytes = -1;
   int i = 1;
 
   while(1) {
@@ -1264,12 +1264,12 @@ int main(int argc, char **argv)
         return 0;
       } else if (strcmp(argv[i], "-s") == 0) {
         if ((argc >= (i + 2))) {
-          if (sscanf(argv[i + 1], "%u", &sha256_secret_bytes) == 1) {
+          if (sscanf(argv[i + 1], "%u", &secret_bytes) == 1) {
             na4_sha256_enabled = 1;
             i += 2;
           }
         }
-        if (sha256_secret_bytes == -1) {
+        if (secret_bytes == -1) {
           fprintf(stderr, "%s: unable to parse -s argument\n", argv[0]);
           return 1;
         }
@@ -1293,13 +1293,13 @@ int main(int argc, char **argv)
   }
 
   /* limit the secret size based on our buffer size */
-  if (sha256_secret_bytes > MAX_BUFSIZE) {
+  if (secret_bytes > MAX_BUFSIZE) {
     fprintf(stderr, "error: unsupported secret size\n");
     return 1;
   }
 
-  if (sha256_secret_bytes >= 0) {
-    if (sha256_secret_bytes == 0) {
+  if (secret_bytes >= 0) {
+    if (secret_bytes == 0) {
       fprintf(stderr, "warning: SHA256 signature mode enabled "
                       "with zero secret (aka naive mode)\n");
     } else {
@@ -1307,23 +1307,23 @@ int main(int argc, char **argv)
 
       if (na4_aes256_enabled) {
         if (decode_enabled) {
-          key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+          key_bytes = stdin_fread_sha256(secret_bytes,
                                          process_frame_sha256_decrypt_early, 1,
                                          NULL, NULL);
         } else {
-          key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+          key_bytes = stdin_fread_sha256(secret_bytes,
                                          process_frame_sha256_encrypt, 1,
                                          &sha256_global_ctx, NULL);
         }
       } else {
-        key_bytes = stdin_fread_sha256(sha256_secret_bytes,
+        key_bytes = stdin_fread_sha256(secret_bytes,
                                        process_frame_sha256_plaintext, 1,
                                        NULL, NULL);
       }
 
-      if (key_bytes != sha256_secret_bytes) {
+      if (key_bytes != secret_bytes) {
         fprintf(stderr, "error: unable to read secret (%d, %d)\n",
-                key_bytes, sha256_secret_bytes);
+                key_bytes, secret_bytes);
         return 1;
       }
 
