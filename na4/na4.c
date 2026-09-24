@@ -688,25 +688,6 @@ static int compare_sha256(void *handle)
   return 0;
 }
 
-static int init_sha256_plaintext(void *handle)
-{
-  SHA256_CTX *sha256 = handle;
-
-  /* initialize first time for processing the secret */
-  sha256_init(sha256);
-  return 0;
-}
-
-static int process_frame_sha256_plaintext(void *handle,
-                                          uint8_t *buf, int len)
-{
-  SHA256_CTX *sha256 = handle;
-
-  sha256_update(sha256, buf, len);
-  memset(buf, 0, len); /* zero out the secret now when done */
-  return len;
-}
-
 static int finish_sha256_plaintext(void *handle)
 {
   SHA256_CTX *sha256 = handle;
@@ -948,24 +929,28 @@ static void kdf_expand_keys(na4_keys_t *keys,
   memset(h, 0, sizeof(h));
 }
 
-static int crypto_init_encoder(na4_crypto_hdr_t *hdr, na4_keys_t *keys,
-                               const uint8_t *secret, size_t secret_len)
+static int crypto_init_salt(na4_crypto_hdr_t *hdr)
 {
-  SHA256_CTX base_ctx;
-  uint8_t master_prk[32];
   FILE *f;
 
-  /* 1. Generate 12 bytes of fresh random salt from CSPRNG */
+  /* Generate 12 bytes of fresh random salt from CSPRNG */
   f = fopen("/dev/urandom", "rb");
   if (!f || fread(hdr->salt, 1, 12, f) != 12) {
     if (f) fclose(f);
       return -1;
   }
   fclose(f);
+  return 0;
+}
 
+static int crypto_init_encoder_late(SHA256_CTX *sha256,
+                                    na4_crypto_hdr_t *hdr, na4_keys_t *keys)
+{
+  uint8_t master_prk[32];
+
+  /* 1. Generate 12 bytes of fresh random salt from CSPRNG (done) */
   /* 2. Compute iterated master key */
-  kdf_extract_master_early(&base_ctx, secret, secret_len);
-  kdf_extract_master_late(&base_ctx, master_prk, hdr->salt, 12);
+  kdf_extract_master_late(sha256, master_prk, hdr->salt, 12);
 
   /* 3. Expand into AES key, MAC key, and the 8-byte check token */
   kdf_expand_keys(keys, hdr->check_token, master_prk);
@@ -1017,27 +1002,48 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
   return 0;
 }
 
-SHA256_CTX sha256_early_decode_ctx;
+static int init_secret(void *handle)
+{
+  SHA256_CTX *sha256 = handle;
 
-static int process_frame_sha256_encrypt(void *handle,
-                                        uint8_t *buf, int len)
+  /* initialize first time for processing the secret */
+  sha256_init(sha256);
+  return 0;
+}
+
+static int process_secret(void *handle, uint8_t *buf, int len)
+{
+  SHA256_CTX *sha256 = handle;
+
+  sha256_update(sha256, buf, len);
+  memset(buf, 0, len); /* zero out the secret now when done */
+  return len;
+}
+
+static int finish_sha256_encrypt(void *handle)
 {
   SHA256_CTX *sha256 = handle;
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
-  crypto_init_encoder(&crypto_hdr, &crypto_keys, buf, len);
+  if (crypto_init_salt(&crypto_hdr) < 0) {
+    return -1;
+  }
+  
+  crypto_init_encoder_late(sha256, &crypto_hdr, &crypto_keys);
 
+  /* initialize once more, this time for actual data processing */
   sha256_init(sha256);
   sha256_update(sha256, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
 
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
-  memset(buf, 0, len); /* zero out the secret now when done */
   memset(&crypto_hdr, 0, sizeof(crypto_hdr));
   memset(&crypto_keys, 0, sizeof(crypto_keys));
-  return len;
+  return 0;
 }
+
+SHA256_CTX sha256_early_decode_ctx;
 
 static int process_frame_sha256_decrypt_early(void *handle,
                                               uint8_t *buf, int len)
@@ -1328,15 +1334,13 @@ int main(int argc, char **argv)
                                   process_frame_sha256_decrypt_early,
                                   1, NULL);
         } else {
-          key_bytes = stdin_fread(&sha256_global_ctx, NULL,
-                                  secret_bytes,
-                                  process_frame_sha256_encrypt,
-                                  1, NULL);
+          key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
+                                  secret_bytes, process_secret,
+                                  1, finish_sha256_encrypt);
         }
       } else {
-        key_bytes = stdin_fread(&sha256_global_ctx, init_sha256_plaintext,
-                                secret_bytes,
-                                process_frame_sha256_plaintext,
+        key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
+                                secret_bytes, process_secret,
                                 1, finish_sha256_plaintext);
       }
 
