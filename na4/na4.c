@@ -823,7 +823,7 @@ static int stdin_fread(void *handle,
     total_bytes += cnt;
   } while (n > 0);
 
-  if (e) {
+  if ((total_bytes > 0) && e) {
     if (e(handle) < 0) {
       return -1;
     }
