@@ -777,7 +777,9 @@ static int decode_frame_sha256(SHA256_CTX *sha256, uint8_t *buf, int len)
   return res;
 }
 
-static uint8_t buf[MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)];
+#define MAX_BUFSIZE MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)
+
+static uint8_t buf[MAX_BUFSIZE];
 
 static int stdin_fread_sha256(int bufsize,
                               int (*f)(SHA256_CTX *, uint8_t *, int),
@@ -1288,6 +1290,12 @@ int main(int argc, char **argv)
   /* initialize keys for simple plaintext case (without encryption) */
   if (na4_sha256_enabled && !na4_aes256_enabled) {
     sha256_init(&sha256_global_ctx);
+  }
+
+  /* limit the secret size based on our buffer size */
+  if (sha256_secret_bytes > MAX_BUFSIZE) {
+    fprintf(stderr, "error: unsupported secret size\n");
+    return 1;
   }
 
   if (sha256_secret_bytes >= 0) {
