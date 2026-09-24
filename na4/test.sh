@@ -174,6 +174,6 @@ do
   for p in `seq 43`
   do
     run_test_password "$f" "$p" ""
-    run_test_password "$f" "$f" -e
+    run_test_password "$f" "$p" -e
   done
 done
