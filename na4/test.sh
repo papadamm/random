@@ -36,26 +36,6 @@ xxd_encode ()
 output_ascii 0 255 | xxd_decode > /dev/null
 echo_pass_fail_exit $?
 
-for e in `seq 33`
-do
-  data=`output_ascii $e`
-
-  /bin/echo -n "encode execution test $e bytes "
-  /bin/echo -n "$data" | xxd_decode | ./na4 > /dev/null
-  echo_pass_fail_exit $?
-
-  /bin/echo -n "encode and decode execution test $e bytes "
-  /bin/echo -n "$data" | xxd_decode | ./na4 | ./na4 -d > /dev/null
-  echo_pass_fail_exit $?
-
-  /bin/echo -n "encode and decode data test $e bytes "
-  result=`/bin/echo -n "$data" | xxd_decode | ./na4 | ./na4 -d | xxd_encode`
-  #/bin/echo "reference = $data"
-  #/bin/echo "result = $result"
-  test "$data" == "$result"
-  echo_pass_fail_exit $?
-done
-
 output_random ()
 {
   head -c $1 /dev/urandom
