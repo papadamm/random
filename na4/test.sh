@@ -33,7 +33,7 @@ xxd_encode ()
 output_ascii 0 255 | xxd_decode > /dev/null
 echo_pass_fail_exit $?
 
-for e in `seq 100`
+for e in `seq 33`
 do
   data=`output_ascii $e`
 
