@@ -691,12 +691,12 @@ static int compare_sha256(void *handle, int total_bytes)
   }
 
   if (sha256_stored_sum_bytes != 32) {
-    fprintf(stderr, "error: sha256 sum not present in parsed data\n");
+    fprintf(stderr, "error: empty stream or missing signature\n");
     return -1;
   }
 
   if (memcmp(sha256_res, sha256_stored_sum, 32) != 0) {
-    fprintf(stderr, "error: sha256 sum mismatch\n");
+    fprintf(stderr, "error: signature mismatch\n");
     return -1;
   }
 
@@ -1394,8 +1394,7 @@ int main(int argc, char **argv)
 
   if (secret_bytes >= 0) {
     if (secret_bytes == 0) {
-      fprintf(stderr, "warning: SHA256 signature mode enabled "
-                      "with zero secret (aka naive mode)\n");
+      fprintf(stderr, "warning: using potentially unsafe 0-byte secret\n");
     } else {
       int key_bytes;
 
