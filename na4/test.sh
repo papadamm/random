@@ -110,7 +110,7 @@ run_test_password() {
     # generate another test password and store data in memory
     failpass=`output_random $nbytes_password | xxd_encode`
 
-    test "$decoded" == "$data"
+    test "$password" == "$failpass"
     if [ $? -ne 0 ]; then
       break
     fi
