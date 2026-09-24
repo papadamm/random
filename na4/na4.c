@@ -692,6 +692,7 @@ static int init_sha256_plaintext(void *handle)
 {
   SHA256_CTX *sha256 = handle;
 
+  /* initialize first time for processing the secret */
   sha256_init(sha256);
   return 0;
 }
@@ -699,17 +700,23 @@ static int init_sha256_plaintext(void *handle)
 static int process_frame_sha256_plaintext(void *handle,
                                           uint8_t *buf, int len)
 {
-  SHA256_CTX derived_key_ctx;
+  SHA256_CTX *sha256 = handle;
 
-  sha256_init(&derived_key_ctx);
-  sha256_update(&derived_key_ctx, buf, len);
-  sha256_final(sha256_derived_key, &derived_key_ctx);
+  sha256_update(sha256, buf, len);
+  memset(buf, 0, len); /* zero out the secret now when done */
+  return len;
+}
+
+static int finish_sha256_plaintext(void *handle)
+{
+  SHA256_CTX *sha256 = handle;
+
+  sha256_final(sha256_derived_key, sha256);
   sha256_derived_key_bytes = 32;
 
-  memset(buf, 0, len); /* zero out the secret now when done */
-  memset(&derived_key_ctx, 0, sizeof(SHA256_CTX));
-
-  return len;
+  /* initialize once more, this time for actual data processing */
+  sha256_init(sha256);
+  return 0;
 }
 
 static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
@@ -1330,7 +1337,7 @@ int main(int argc, char **argv)
         key_bytes = stdin_fread(&sha256_global_ctx, init_sha256_plaintext,
                                 secret_bytes,
                                 process_frame_sha256_plaintext,
-                                1, NULL);
+                                1, finish_sha256_plaintext);
       }
 
       if (key_bytes != secret_bytes) {
