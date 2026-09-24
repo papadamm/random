@@ -779,7 +779,6 @@ static int stdin_fread(void *handle,
 		       int (*c)(void *),
 		       int bufsize,
 		       int (*f)(void *, uint8_t *, int),
-		       int num_bufs,
 		       int (*e)(void *))
 {
   int total_bytes = 0;
@@ -822,9 +821,6 @@ static int stdin_fread(void *handle,
     }
 
     total_bytes += cnt;
-    if (num_bufs == 1) {
-      break;
-    }
   } while (n > 0);
 
   if (e) {
@@ -833,6 +829,71 @@ static int stdin_fread(void *handle,
     }
   }
 
+  return total_bytes;
+}
+
+static int stdin_fread_secret(void *handle,
+                              int (*c)(void *),
+                              int xfersize,
+                              int (*f)(void *, uint8_t *, int),
+                              int (*e)(void *))
+{
+  int bufsize = sizeof(buf);
+  int total_bytes = 0;
+  int curr_bufsize;
+  int cnt;
+  int n, m;
+
+  if (c) {
+    if (c(handle) < 0) {
+      return -1;
+    }
+  }
+
+  do {
+    memset(buf, 0, bufsize);
+    cnt = 0;
+
+  read_again:
+    if (total_bytes >= xfersize) {
+      break;
+    }
+    curr_bufsize = MIN(bufsize, (xfersize - total_bytes));
+
+    /* read one byte at a time to fill up to bufsize */
+    do {
+      n = fread(&buf[cnt], 1, 1, stdin);
+      if (n) {
+        cnt++;
+      }
+    } while (n && (cnt < curr_bufsize));
+
+    m = 0;
+    if (cnt > 0) {
+      if (f)  {
+        m = f(handle, buf, cnt);
+        if (m < 0) {
+          return -1;
+        }
+      }
+    }
+    if (m < cnt) {
+      memmove(&buf[0], &buf[m], bufsize - m);
+      total_bytes += m;
+      cnt -= m;
+      goto read_again;
+    }
+
+    total_bytes += cnt;
+  } while (1);
+
+  if (e) {
+    if (e(handle) < 0) {
+      return -1;
+    }
+  }
+
+  memset(buf, 0, bufsize); /* zero out the secret now when done */
   return total_bytes;
 }
 
@@ -1315,12 +1376,6 @@ int main(int argc, char **argv)
     break;
   }
 
-  /* limit the secret size based on our buffer size */
-  if (secret_bytes > MAX_BUFSIZE) {
-    fprintf(stderr, "error: unsupported secret size\n");
-    return 1;
-  }
-
   if (secret_bytes >= 0) {
     if (secret_bytes == 0) {
       fprintf(stderr, "warning: SHA256 signature mode enabled "
@@ -1330,18 +1385,18 @@ int main(int argc, char **argv)
 
       if (na4_aes256_enabled) {
         if (decode_enabled) {
-          key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
-                                  secret_bytes, process_secret,
-                                  1, finish_sha256_decrypt);
+          key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+                                         secret_bytes, process_secret,
+                                         finish_sha256_decrypt);
         } else {
-          key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
-                                  secret_bytes, process_secret,
-                                  1, finish_sha256_encrypt);
+          key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+                                         secret_bytes, process_secret,
+                                         finish_sha256_encrypt);
         }
       } else {
-        key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
-                                secret_bytes, process_secret,
-                                1, finish_sha256_plaintext);
+        key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+                                       secret_bytes, process_secret,
+                                       finish_sha256_plaintext);
       }
 
       if (key_bytes != secret_bytes) {
@@ -1362,12 +1417,12 @@ int main(int argc, char **argv)
 
   if (decode_enabled) {
     return stdin_fread(&sha256_global_ctx, NULL,
-                       OUTPUT_BUFSIZE, decode_frame_sha256, 0,
+                       OUTPUT_BUFSIZE, decode_frame_sha256,
                        /* no need to compare SHA256 when "-s" is missing */
                        na4_sha256_enabled ? compare_sha256 : NULL) < 0;
   } else {
     return stdin_fread(&sha256_global_ctx, NULL,
-                       INPUT_BUFSIZE, encode_frame_sha256, 0,
+                       INPUT_BUFSIZE, encode_frame_sha256,
                        /* no need to store SHA256 when "-s" is missing */
                        na4_sha256_enabled ? store_sha256 : NULL) < 0;
   }
