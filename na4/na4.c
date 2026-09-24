@@ -1027,7 +1027,10 @@ static int finish_sha256_encrypt(void *handle)
 
   /* initialize once more, this time for actual data processing */
   sha256_init(sha256);
-  sha256_update(sha256, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
+
+  /* save key for use later when data processing is finished */
+  memcpy(sha256_derived_key, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
+  sha256_derived_key_bytes = 32;
 
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
@@ -1062,9 +1065,10 @@ static int process_frame_sha256_decrypt_late(uint8_t *buf, int len)
                               &crypto_hdr, &crypto_keys);
 
     if (ret == 0) {
-      sha256_init(&sha256_global_ctx);
-      sha256_update(&sha256_global_ctx,
-                    crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
+      /* save key for use later when data processing is finished */
+      memcpy(sha256_derived_key, crypto_keys.mac_key,
+             sizeof(crypto_keys.mac_key));
+      sha256_derived_key_bytes = 32;
 
       aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
       na4_crypto_header_parsed = 1;
