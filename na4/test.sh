@@ -32,7 +32,7 @@ xxd_encode ()
 }
 
 # test decoding the ASCII stream first, execution only test
-/bin/echo -n "decode hex "
+/bin/echo -n "# decode hex (xxd) "
 output_ascii 0 255 | xxd_decode > /dev/null
 echo_pass_fail_exit $?
 
@@ -41,34 +41,42 @@ output_random ()
   head -c $1 /dev/urandom
 }
 
-run_test_plaintext() {
-  local desc="$1"
-  local nbytes="$2"
+run_test_plaintext()
+{
+  local nbytes="$1"
 
-  /bin/echo -n "Testing Plaintext $desc... "
+  /bin/echo "# Running plain tests ($nbytes)"
 
   # generate test sample and store data in memory
   data=`output_random $nbytes | xxd_encode`
 
-  # 1. Encode
+  /bin/echo -n "# 1A. Encode (exit code) "
   encoded=`/bin/echo -n "$data" | xxd_decode | ./na4`
+  test $? -eq 0 
+  echo_pass_fail_exit $?
 
-  # 2. Decode 
+  /bin/echo -n "# 1B. Encode (output) "
+  test -n "$encoded"
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 2A. Decode (exit code) "
   decoded=`/bin/echo -n "$encoded" | ./na4 -d | xxd_encode`
+  test $? -eq 0 
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 2B. Decode (data match) "
   test "$decoded" == "$data"
   echo_pass_fail_exit $?
 
-  # 3. Decode with zero password (must fail)
+  /bin/echo -n "# 3. Decode with zero password (must fail) "
   /bin/echo -n "$encoded" | ./na4 -d -s 0 2> /dev/null > /dev/null
   test $? -ne 0 
   echo_pass_fail_exit $?
-
-  echo "PASS"
 }
 
 for f in 1 2 3 31 32 33
 do
-  run_test_plaintext $f $f
+  run_test_plaintext $f
 done
 
 run_test_password() {
