@@ -698,6 +698,14 @@ static int compare_sha256(void *handle)
   return 0;
 }
 
+static int init_sha256_plaintext(void *handle)
+{
+  SHA256_CTX *sha256 = handle;
+
+  sha256_init(sha256);
+  return 0;
+}
+
 static int process_frame_sha256_plaintext(void *handle,
                                           uint8_t *buf, int len)
 {
@@ -1303,11 +1311,6 @@ int main(int argc, char **argv)
     break;
   }
 
-  /* initialize keys for simple plaintext case (without encryption) */
-  if (na4_sha256_enabled && !na4_aes256_enabled) {
-    sha256_init(&sha256_global_ctx);
-  }
-
   /* limit the secret size based on our buffer size */
   if (secret_bytes > MAX_BUFSIZE) {
     fprintf(stderr, "error: unsupported secret size\n");
@@ -1334,7 +1337,7 @@ int main(int argc, char **argv)
                                   1, NULL);
         }
       } else {
-        key_bytes = stdin_fread(&sha256_global_ctx, NULL,
+        key_bytes = stdin_fread(&sha256_global_ctx, init_sha256_plaintext,
                                 secret_bytes,
                                 process_frame_sha256_plaintext,
                                 1, NULL);
