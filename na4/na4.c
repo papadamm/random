@@ -850,14 +850,6 @@ typedef struct {
   uint8_t mac_key[32];     /* Stream integrity MAC key */
 } na4_keys_t;
 
-static void kdf_extract_master_early(SHA256_CTX *ctx,
-                                     const uint8_t *secret, size_t secret_len)
-{
-  /* Round 1A: H(Secret) */
-  sha256_init(ctx);
-  sha256_update(ctx, secret, secret_len);
-}
-
 /*
  * Helper: PBKDF2-like iterated hashing using your SHA256 primitives.
  * Performs KDF_ITERATIONS rounds of SHA-256 over (salt || secret).
@@ -869,6 +861,7 @@ static void kdf_extract_master_late(SHA256_CTX *base_ctx,
   SHA256_CTX ctx;
   uint32_t i;
 
+  /* Round 1A: H(Secret) (done elsewhere before this) */
   /* Round 1B: H(Salt) */
   memcpy(&ctx, base_ctx, sizeof(SHA256_CTX));
   sha256_update(&ctx, salt, salt_len);
@@ -1045,12 +1038,16 @@ static int finish_sha256_encrypt(void *handle)
 
 SHA256_CTX sha256_early_decode_ctx;
 
-static int process_frame_sha256_decrypt_early(void *handle,
-                                              uint8_t *buf, int len)
+static int finish_sha256_decrypt(void *handle)
 {
-  kdf_extract_master_early(&sha256_early_decode_ctx, buf, len);
-  memset(buf, 0, len); /* zero out the secret now when done */
-  return len;
+  SHA256_CTX *sha256 = handle;
+
+  /* save key context for use later when intializing the decoder */
+  memcpy(&sha256_early_decode_ctx, sha256, sizeof(SHA256_CTX));
+  
+  /* initialize once more, this time for actual data processing */
+  sha256_init(sha256);
+  return 0;
 }
 
 static int process_frame_sha256_decrypt_late(uint8_t *buf, int len)
@@ -1329,10 +1326,9 @@ int main(int argc, char **argv)
 
       if (na4_aes256_enabled) {
         if (decode_enabled) {
-          key_bytes = stdin_fread(NULL, NULL,
-                                  secret_bytes,
-                                  process_frame_sha256_decrypt_early,
-                                  1, NULL);
+          key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
+                                  secret_bytes, process_secret,
+                                  1, finish_sha256_decrypt);
         } else {
           key_bytes = stdin_fread(&sha256_global_ctx, init_secret,
                                   secret_bytes, process_secret,
