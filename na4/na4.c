@@ -646,11 +646,6 @@ static int store_sha256(void *handle)
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
 
-  /* no need to store SHA256 when "-s" is missing */
-  if (!na4_sha256_enabled) {
-    return 0;
-  }
-  
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
     if (sha256_derived_key_bytes) {
@@ -671,11 +666,6 @@ static int compare_sha256(void *handle)
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
 
-  /* no need to compare SHA256 when "-s" is missing */
-  if (!na4_sha256_enabled) {
-    return 0;
-  }
-  
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
     if (sha256_derived_key_bytes) {
@@ -1361,11 +1351,13 @@ int main(int argc, char **argv)
 
   if (decode_enabled) {
     return stdin_fread(&sha256_global_ctx, NULL,
-                      OUTPUT_BUFSIZE, decode_frame_sha256,
-                      0, compare_sha256) < 0;
+                       OUTPUT_BUFSIZE, decode_frame_sha256, 0,
+                       /* no need to compare SHA256 when "-s" is missing */
+                       na4_sha256_enabled ? compare_sha256 : NULL) < 0;
   } else {
     return stdin_fread(&sha256_global_ctx, NULL,
-                       INPUT_BUFSIZE, encode_frame_sha256,
-                       0, store_sha256) < 0;
+                       INPUT_BUFSIZE, encode_frame_sha256, 0,
+                       /* no need to store SHA256 when "-s" is missing */
+                       na4_sha256_enabled ? store_sha256 : NULL) < 0;
   }
 }
