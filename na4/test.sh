@@ -14,6 +14,9 @@ echo_pass_fail_exit ()
     echo PASS
   else
     echo FAIL
+    if [ -n "$2" ]; then
+      echo "FAIL CASE DATA $2"
+    fi
     exit 1
   fi
 }
@@ -116,47 +119,51 @@ run_test_password() {
     fi
   done
 
+  /bin/echo "password $password"
+  /bin/echo "failpass $failpass"
+  /bin/echo "data $data"
+
   /bin/echo -n "# 1. Encode + Encrypt "
   encoded=`( /bin/echo -n "$password" | xxd_decode; /bin/echo -n "$data" | xxd_decode ) | ./na4 $f -s $nbytes_password`
   test -n "$encoded"
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? $?
 
   /bin/echo -n "# 2. Decode with correct password (should match bit-for-bit) "
   decoded=`( /bin/echo -n "$password" | xxd_decode; /bin/echo -n "$encoded" ) |  ./na4 -d $f -s $nbytes_password | xxd_encode`
   test "$decoded" == "$data"
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? "$decoded"
 
   /bin/echo -n "# 3. Decode with incorrect password data but same length (should fail) "
   ( /bin/echo -n "$failpass" | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d $f -s $nbytes_password 2> /dev/null > /dev/null
   test $? -ne 0 
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? $?
 
   /bin/echo -n "# 4. Decode with incorrect longer password (should fail) "
   ( /bin/echo -n "$failpass$failpass" | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d $f -s $nbytes_password 2> /dev/null > /dev/null
   test $? -ne 0
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? $?
 
   /bin/echo -n "# 5. Decode with shorter password but original -s (should fail) "
   ( /bin/echo -n "$failpass" | head -c 1 | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d $f -s $nbytes_password 2> /dev/null > /dev/null
   test $? -ne 0
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? $?
 
   /bin/echo -n "# 6. Decode with original password but shorter -s (should fail) "
   ( /bin/echo -n "$failpass" | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d $f -s 1 2> /dev/null > /dev/null
   test $? -ne 0 
-  echo_pass_fail_exit $?
+  echo_pass_fail_exit $? $?
 
   # Decode of encrypted data behaves differently than plaintext
   if [ -n "$f" ]; then
     /bin/echo -n "# 7A. Decode [$f] with known failure case (stdout must remain empty) "
     empty=`( /bin/echo -n "$failpass" | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d $f -s $nbytes_password 2>/dev/null`
     test -z "$empty"
-    echo_pass_fail_exit $?
+    echo_pass_fail_exit $? "$empty"
   else
     /bin/echo -n "# 7B. Decode plaintext with known failure case (stdout should contain data) "
     decoded2=`( /bin/echo -n "$failpass" | xxd_decode; /bin/echo -n "$encoded" ) | ./na4 -d -s $nbytes_password 2>/dev/null | xxd_encode`
     test "$decoded2" == "$data"
-    echo_pass_fail_exit $?
+    echo_pass_fail_exit $? "$decoded2"
   fi
 
   # TODO: Tamper detection (flip a byte in the payload; MAC must fail)
