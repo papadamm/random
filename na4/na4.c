@@ -641,10 +641,21 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 
 /* Simple Suffix-MAC with SHA-256 */
 /* when encoding, store the sha256 sum */
-static int store_sha256(void *handle)
+static int store_sha256(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
+
+  /* no need to store SHA256 when "-s" is missing */
+  if (!na4_sha256_enabled) {
+    return 0;
+  }
+
+  if ((total_bytes == 0) && na4_sha256_enabled && !na4_aes256_enabled) {
+      fprintf(stderr, "warning: cannot safely sign 0-byte stream "
+             "without -e (salt); omitting signature\n");
+      return 0;
+  }
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
@@ -661,10 +672,15 @@ static int store_sha256(void *handle)
 }
 
 /* when decoding, compare with the stored sum */
-static int compare_sha256(void *handle)
+static int compare_sha256(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
+
+  /* no need to compare SHA256 when "-s" is missing */
+  if (!na4_sha256_enabled) {
+    return 0;
+  }
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
@@ -688,7 +704,7 @@ static int compare_sha256(void *handle)
   return 0;
 }
 
-static int finish_sha256_plaintext(void *handle)
+static int finish_sha256_plaintext(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
 
@@ -779,7 +795,7 @@ static int stdin_fread(void *handle,
 		       int (*c)(void *),
 		       int bufsize,
 		       int (*f)(void *, uint8_t *, int),
-		       int (*e)(void *))
+		       int (*e)(void *, int))
 {
   int total_bytes = 0;
   int cnt;
@@ -823,8 +839,8 @@ static int stdin_fread(void *handle,
     total_bytes += cnt;
   } while (n > 0);
 
-  if ((total_bytes > 0) && e) {
-    if (e(handle) < 0) {
+  if (e) {
+    if (e(handle, total_bytes) < 0) {
       return -1;
     }
   }
@@ -836,7 +852,7 @@ static int stdin_fread_secret(void *handle,
                               int (*c)(void *),
                               int xfersize,
                               int (*f)(void *, uint8_t *, int),
-                              int (*e)(void *))
+                              int (*e)(void *, int))
 {
   int bufsize = sizeof(buf);
   int total_bytes = 0;
@@ -888,7 +904,7 @@ static int stdin_fread_secret(void *handle,
   } while (1);
 
   if (e) {
-    if (e(handle) < 0) {
+    if (e(handle, total_bytes) < 0) {
       return -1;
     }
   }
@@ -1074,7 +1090,7 @@ static int process_secret(void *handle, uint8_t *buf, int len)
   return len;
 }
 
-static int finish_sha256_encrypt(void *handle)
+static int finish_sha256_encrypt(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   na4_keys_t crypto_keys = {};
@@ -1102,7 +1118,7 @@ static int finish_sha256_encrypt(void *handle)
 
 SHA256_CTX sha256_early_decode_ctx;
 
-static int finish_sha256_decrypt(void *handle)
+static int finish_sha256_decrypt(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
 
@@ -1418,12 +1434,10 @@ int main(int argc, char **argv)
   if (decode_enabled) {
     return stdin_fread(&sha256_global_ctx, NULL,
                        OUTPUT_BUFSIZE, decode_frame_sha256,
-                       /* no need to compare SHA256 when "-s" is missing */
-                       na4_sha256_enabled ? compare_sha256 : NULL) < 0;
+                       compare_sha256) < 0;
   } else {
     return stdin_fread(&sha256_global_ctx, NULL,
                        INPUT_BUFSIZE, encode_frame_sha256,
-                       /* no need to store SHA256 when "-s" is missing */
-                       na4_sha256_enabled ? store_sha256 : NULL) < 0;
+                       store_sha256) < 0;
   }
 }
