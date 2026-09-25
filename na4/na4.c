@@ -723,7 +723,7 @@ static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
   }
 
-  if (na4_sha256_enabled && sha256) {
+  if (na4_sha256_enabled) {
    sha256_update(sha256, buf, len);
   }
 
@@ -773,7 +773,7 @@ static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
   }
 
   if ((res > 0) && (bytes_out > 0)) {
-    if (na4_sha256_enabled && sha256) {
+    if (na4_sha256_enabled) {
       sha256_update(sha256, frame_out, bytes_out);
     }
     if (na4_aes256_enabled) {
