@@ -915,67 +915,34 @@ static int stdin_fread(void *handle,
 
 static int stdin_fread_secret(void *handle,
                               int (*c)(void *),
-                              int xfersize,
+                              int xfer_size,
                               int (*f)(void *, uint8_t *, int),
                               int (*e)(void *, int))
 {
-  uint8_t secret_buf[1];
-  int bufsize = sizeof(secret_buf);
   int total_bytes = 0;
-  int curr_bufsize;
-  int cnt;
+  uint8_t ch = 0;
   int n, m;
 
-  if (c) {
-    if (c(handle) < 0) {
-      return -1;
-    }
+  if (c && (c(handle) < 0)) {
+    return -1;
   }
 
-  do {
-    memset(buf, 0, bufsize);
-    cnt = 0;
-
-  read_again:
-    if (total_bytes >= xfersize) {
-      break;
-    }
-    curr_bufsize = MIN(bufsize, (xfersize - total_bytes));
-
-    /* read one byte at a time to fill up to bufsize */
-    do {
-      n = fread(&secret_buf[cnt], 1, 1, stdin);
-      if (n) {
-        cnt++;
+  while (total_bytes < xfer_size) {
+    n = fread(&ch, 1, 1, stdin);
+    if (n > 0) {
+      m = f(handle, &ch, 1);
+      if (m < 0) {
+        return -1;
       }
-    } while (n && (cnt < curr_bufsize));
-
-    m = 0;
-    if (cnt > 0) {
-      if (f)  {
-        m = f(handle, secret_buf, cnt);
-        if (m < 0) {
-          return -1;
-        }
-      }
-    }
-    if (m < cnt) {
-      memmove(&secret_buf[0], &secret_buf[m], bufsize - m);
       total_bytes += m;
-      cnt -= m;
-      goto read_again;
-    }
-
-    total_bytes += cnt;
-  } while (1);
-
-  if (e) {
-    if (e(handle, total_bytes) < 0) {
-      return -1;
     }
   }
 
-  memset(secret_buf, 0, bufsize); /* zero out the secret now when done */
+  if (e && (e(handle, total_bytes) < 0)) {
+    return -1;
+  }
+
+  ch = 0;
   return total_bytes;
 }
 
@@ -1180,7 +1147,7 @@ static int finish_sha256_encrypt(void *handle, int total_bytes)
   if (crypto_init_salt(&crypto_hdr.salt[0], 12) < 0) {
     return -1;
   }
-  
+
   crypto_init_encoder_late(sha256, &crypto_hdr, &crypto_keys);
 
   /* initialize once more, this time for actual data processing */
@@ -1209,7 +1176,7 @@ static int finish_sha256_decrypt(void *handle, int total_bytes)
 
   /* save key context for use later when intializing the decoder */
   memcpy(&sha256_early_decode_ctx, sha256, sizeof(SHA256_CTX));
-  
+
   /* initialize once more, this time for actual data processing */
   sha256_init(sha256);
   return 0;
