@@ -52,20 +52,20 @@ As can be seen above comparing uudecode and the last example with encryption ena
 Using the SHA256 checksum feature in "naive mode":
 ```console
 % echo -n hello | ./na4 -s 0
-warning: SHA256 signature mode enabled with zero secret (aka naive mode)
+warning: using potentially unsafe 0-byte secret
 _216Hb[0W}^D1Cx.M5W7HHzebaBf)N[sxz]D0SjqD7B<HnD7]]<qMfLel0%
 % echo -n hello | ./na4 -s 0 | ./na4 -d
-warning: SHA256 signature mode enabled with zero secret (aka naive mode)
+warning: using potentially unsafe 0-byte secret
 hello%
 % echo -n hello | ./na4 -s 0 2> /dev/null | ./na4 -d
 hello%
 % echo -n hello | ./na4 -s 0 2> /dev/null | ./na4 -d -s 0
-warning: SHA256 signature mode enabled with zero secret (aka naive mode)
+warning: using potentially unsafe 0-byte secret
 hello%
 % echo -n hello | ./na4 -s 0 2> /dev/null| ./na4 -d -s 0 2> /dev/null
 hello%
 % echo -n hello | ./na4 | ./na4 -d -s 0
-error: sha256 sum not present in parsed data
+error: empty stream or missing signature
 hello%
 ```
 Please note that this "naive mode" (without a secret) is only intended for testing purposes. In fact, in this mode it is possible that the encoded data stream may have been tampered with and there is no way for software to detect this.
@@ -82,7 +82,7 @@ i en laxask%
 % echo $?
 0
 % echo -n "sju laxar _8DaPIp)oMW_jej)A^D0TgqEwnVPNysE5iC5O9Qs<]D0<^0mYGzbigc*b4z@--gs3" | ./na4 -d -s 10 
-error: sha256 sum mismatch
+error: signature mismatch
 i en laxask%
 % echo $?
 1
