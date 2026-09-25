@@ -60,7 +60,10 @@
 /* such as 1-byte frames, 2-byte frames, 31-byte frames and TAIL2 format     */
 /* TAIL2 uses an additional character to also encode the remaining sizes     */
 /*                                                                           */
-/* if enabled when encoding, SHA256 data is stored in two TAIL2 frames       */
+/* depending on if signature is added and if encryption is enabled:          */
+/* + "-s" appends signature data in two TAIL2 frames at the end              */
+/* + "-e" adds a constant sized prefix made from one unencrypted TAIL2 frame */
+/* + "-e" also adds another variable sized prefix to the encrypted stream    */
 /*                                                                           */
 /* When encoding the internal process looks like this:                       */
 /* bin in -> BigInt(mul256_div77) -> reverse -> [tail] encoding -> char out  */
@@ -69,7 +72,14 @@
 /* char in -> [tail] decoding -> reverse -> BigInt(mul77_div256) -> bin out  */
 /*                                                                           */
 /* TODO:                                                                     */
-/* - Clean up the decoder and the encoder                                    */
+/* - Clean up the decoder and the encoder (especially the function names)    */
+/* - Clean up header size calculation and avoid duplicating logic            */
+/* - Tail frame detection logic needs to be straightened out                 */
+/* - stdin_fread() is not exactly easy to read. stdin_fread_secret() is.     */
+/* - Global variables for moshio and crypto headers are not exactly clean    */
+/* - Switch from suffix MAC to HMAC-SHA256                                   */
+/* - Add test cases for the various command line options                     */
+/* - Add help text                                                           */
 
 #include <stdio.h>
 #include <string.h>
