@@ -90,6 +90,8 @@ int na4_aes256_enabled;
 int na4_sha256_enabled;
 
 int na4_crypto_header_parsed;
+int na4_crypto_moshio_required;
+uint8_t na4_crypto_moshio_data;
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
@@ -715,9 +717,50 @@ static int finish_sha256_plaintext(void *handle, int total_bytes)
   return 0;
 }
 
+static int crypto_init_salt(uint8_t *buf, int len);
+
 static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
 {
   SHA256_CTX *sha256 = handle;
+  uint8_t moshio_frame[INPUT_BUFSIZE];
+  int nr_moshio_bytes;
+  int nr_data_bytes;
+  int n;
+
+  /* initial encrypted moshio frame, prevents disclosing encoded data size */
+  if (na4_crypto_moshio_required) {
+    /* generate 32 bytes of random data, use 1-16 bytes as prefix */
+    if (crypto_init_salt(&moshio_frame[0], INPUT_BUFSIZE) < 0) {
+      return -1;
+    }
+
+    /* store first frame length at a position determined by the hash */
+    nr_moshio_bytes = na4_crypto_moshio_data & 0x0f;
+    nr_data_bytes = MIN(INPUT_BUFSIZE - (nr_moshio_bytes + 1), len);
+    moshio_frame[nr_moshio_bytes] = nr_data_bytes;
+    nr_moshio_bytes++;
+    memcpy(&moshio_frame[nr_moshio_bytes], buf, nr_data_bytes);
+
+    n = nr_moshio_bytes + nr_data_bytes;
+
+    if (na4_aes256_enabled) {
+      aes_ctr_process_frame(&moshio_frame[0], n,
+			    &na4_ctr_state, &na4_aes256_ctx);
+    }
+
+    if (na4_sha256_enabled) {
+      sha256_update(sha256, &moshio_frame[0], n);
+    }
+
+    encode_frame_custom(&moshio_frame[0], n, 0);
+
+    na4_crypto_moshio_required = 0;
+    return nr_data_bytes; /* short */
+  }
+
+  /* regular frame path */
+  if (len == 0)
+    return 0;
 
   if (na4_aes256_enabled) {
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
@@ -761,6 +804,9 @@ static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
   int bytes_out = 0;
   int res = 0;
 
+  if (len == 0)
+    return 0;
+
   res = decode_frame_custom(frame_out, INPUT_BUFSIZE, buf, len,
 			    &bytes_out, decode_custom_tail);
   if (res < 0) {
@@ -772,17 +818,39 @@ static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
     return  -1;
   }
 
-  if ((res > 0) && (bytes_out > 0)) {
-    if (na4_sha256_enabled) {
-      sha256_update(sha256, frame_out, bytes_out);
-    }
-    if (na4_aes256_enabled) {
-      aes_ctr_process_frame(frame_out, bytes_out,
-                            &na4_ctr_state, &na4_aes256_ctx);
-    }
-    fwrite(frame_out, bytes_out, 1, stdout);
-    fflush(stdout);
+  if ((res == 0) || (bytes_out <= 0)) {
+    return res;
   }
+
+  if (na4_sha256_enabled) {
+    sha256_update(sha256, frame_out, bytes_out);
+  }
+  if (na4_aes256_enabled) {
+    aes_ctr_process_frame(frame_out, bytes_out,
+                          &na4_ctr_state, &na4_aes256_ctx);
+  }
+
+  /* simply skip over initial encrypted moshio data */
+  if (na4_crypto_moshio_required) {
+    int nr_moshio_bytes;
+    int stored_len;
+    int nr_data_bytes;
+
+    /* determine number of moshio bytes to skip by the hash */
+    nr_moshio_bytes = na4_crypto_moshio_data & 0x0f;
+    stored_len = frame_out[nr_moshio_bytes];
+    nr_moshio_bytes++;
+    nr_data_bytes = MIN(INPUT_BUFSIZE - nr_moshio_bytes, stored_len);
+
+    na4_crypto_moshio_required = 0;
+
+    fwrite(&frame_out[nr_moshio_bytes], nr_data_bytes, 1, stdout);
+    fflush(stdout);
+    return res;
+  }
+
+  fwrite(frame_out, bytes_out, 1, stdout);
+  fflush(stdout);
   return res;
 }
 
@@ -820,12 +888,10 @@ static int stdin_fread(void *handle,
     } while (n && (cnt < bufsize));
 
     m = 0;
-    if (cnt > 0) {
-      if (f)  {
-        m = f(handle, buf, cnt);
-        if (m < 0) {
-          return -1;
-        }
+    if (f)  {
+      m = f(handle, buf, cnt);
+      if (m < 0) {
+        return -1;
       }
     }
     if (f && (m < cnt)) {
@@ -919,6 +985,7 @@ static int stdin_fread_secret(void *handle,
 typedef struct {
   uint8_t salt[12];        /* Nonce / KDF Salt */
   uint8_t check_token[8];  /* Fast verification tag */
+  uint8_t moshio[1];       /* Parameter used for encrypted salt */
 } na4_crypto_hdr_t;
 
 /* Holds derived active keys */
@@ -962,6 +1029,7 @@ static void kdf_extract_master_late(SHA256_CTX *base_ctx,
  */
 static void kdf_expand_keys(na4_keys_t *keys,
                             uint8_t check_token[8],
+                            uint8_t moshio[1],
                             const uint8_t master_prk[32])
 {
   SHA256_CTX ctx;
@@ -987,6 +1055,14 @@ static void kdf_expand_keys(na4_keys_t *keys,
 
   memcpy(check_token, h, 8);
 
+  /* 4. Derive Moshio (encryped variable size salt) */
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_prk, 32);
+  sha256_update(&ctx, (const uint8_t *)"chk-moshio", 10);
+  sha256_final(h, &ctx);
+
+  memcpy(moshio, h, 1);
+
   /* Derive 12-byte CTR Nonce */
   sha256_init(&ctx);
   sha256_update(&ctx, master_prk, 32);
@@ -999,13 +1075,13 @@ static void kdf_expand_keys(na4_keys_t *keys,
   memset(h, 0, sizeof(h));
 }
 
-static int crypto_init_salt(na4_crypto_hdr_t *hdr)
+static int crypto_init_salt(uint8_t *buf, int len)
 {
   FILE *f;
 
-  /* Generate 12 bytes of fresh random salt from CSPRNG */
+  /* Generate N bytes of fresh random salt from CSPRNG */
   f = fopen("/dev/urandom", "rb");
-  if (!f || fread(hdr->salt, 1, 12, f) != 12) {
+  if (!f || fread(buf, 1, len, f) != len) {
     if (f) fclose(f);
       return -1;
   }
@@ -1022,8 +1098,8 @@ static int crypto_init_encoder_late(SHA256_CTX *sha256,
   /* 2. Compute iterated master key */
   kdf_extract_master_late(sha256, master_prk, hdr->salt, 12);
 
-  /* 3. Expand into AES key, MAC key, and the 8-byte check token */
-  kdf_expand_keys(keys, hdr->check_token, master_prk);
+  /* 3. Expand into several keys and check tokens */
+  kdf_expand_keys(keys, hdr->check_token, hdr->moshio, master_prk);
   memset(master_prk, 0, sizeof(master_prk));
 
   /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) as Frame 0 */
@@ -1036,6 +1112,7 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
 {
   uint8_t master_prk[32];
   uint8_t computed_token[8];
+  uint8_t moshio[1];
 
   if (!na4_aes256_enabled) {
     if (na4_sha256_enabled) {
@@ -1051,7 +1128,7 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
   kdf_extract_master_late(base_ctx, master_prk, hdr->salt, 12);
 
   /* 2. Expand keys and compute what the check token SHOULD be */
-  kdf_expand_keys(keys, computed_token, master_prk);
+  kdf_expand_keys(keys, computed_token, moshio, master_prk);
   memset(master_prk, 0, sizeof(master_prk));
 
   /* 3. Constant-time comparison: did the password match? */
@@ -1067,6 +1144,10 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
     fprintf(stderr, "error: incorrect password\n");
     return -1; 
   }
+
+  /* next step is to parse a bit of encrypted salt */
+  na4_crypto_moshio_required = 1;
+  na4_crypto_moshio_data = moshio[0];
 
   /* Token matched! Ready to start decrypting frames straight to stdout */
   return 0;
@@ -1096,7 +1177,7 @@ static int finish_sha256_encrypt(void *handle, int total_bytes)
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
-  if (crypto_init_salt(&crypto_hdr) < 0) {
+  if (crypto_init_salt(&crypto_hdr.salt[0], 12) < 0) {
     return -1;
   }
   
@@ -1110,6 +1191,10 @@ static int finish_sha256_encrypt(void *handle, int total_bytes)
   sha256_derived_key_bytes = 32;
 
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
+
+  /* next step is to output a bit of encrypted salt */
+  na4_crypto_moshio_required = 1;
+  na4_crypto_moshio_data = crypto_hdr.moshio[0];
 
   memset(&crypto_hdr, 0, sizeof(crypto_hdr));
   memset(&crypto_keys, 0, sizeof(crypto_keys));
