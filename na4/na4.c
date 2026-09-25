@@ -853,7 +853,8 @@ static int stdin_fread_secret(void *handle,
                               int (*f)(void *, uint8_t *, int),
                               int (*e)(void *, int))
 {
-  int bufsize = sizeof(buf);
+  uint8_t secret_buf[1];
+  int bufsize = sizeof(secret_buf);
   int total_bytes = 0;
   int curr_bufsize;
   int cnt;
@@ -877,7 +878,7 @@ static int stdin_fread_secret(void *handle,
 
     /* read one byte at a time to fill up to bufsize */
     do {
-      n = fread(&buf[cnt], 1, 1, stdin);
+      n = fread(&secret_buf[cnt], 1, 1, stdin);
       if (n) {
         cnt++;
       }
@@ -886,14 +887,14 @@ static int stdin_fread_secret(void *handle,
     m = 0;
     if (cnt > 0) {
       if (f)  {
-        m = f(handle, buf, cnt);
+        m = f(handle, secret_buf, cnt);
         if (m < 0) {
           return -1;
         }
       }
     }
     if (m < cnt) {
-      memmove(&buf[0], &buf[m], bufsize - m);
+      memmove(&secret_buf[0], &secret_buf[m], bufsize - m);
       total_bytes += m;
       cnt -= m;
       goto read_again;
@@ -908,7 +909,7 @@ static int stdin_fread_secret(void *handle,
     }
   }
 
-  memset(buf, 0, bufsize); /* zero out the secret now when done */
+  memset(secret_buf, 0, bufsize); /* zero out the secret now when done */
   return total_bytes;
 }
 
