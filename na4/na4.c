@@ -7,11 +7,21 @@
 /* this code makes use of base77 with 6.203125 bits per character to         */
 /* encode and decode chunks of 32 byte binary data into 42 ASCII characters  */
 /*                                                                           */
+/* by default the tool will encode. use the -d option to switch to decode.   */
+/* the data gets coded binary <-> ASCII with an embedded CRC4 checksum.      */
+/* any amount data (including 0-byte) will pass through in the default mode. */
+/*                                                                           */
 /* if the -s option is enabled SHA256 is used to verify the encoded contents */
 /* please pass an integer (N) to -s and feed N bytes to stdin for suffix MAC */
+/* note that the encoded contents will pass through regardless SHA256 match. */
+/* feeding data without signature (or empty) to na4 -d -s N will cause error */
 /*                                                                           */
-/* please note that the contents are not encrypted but the SHA256 signature  */
-/* may be used to check if the data has been tampered with or not            */
+/* if the -e option is enabled AES256 is used to encrypt the data. for this  */
+/* to work the -s option needs to be enabled as well. when encryption is on  */
+/* the tool will perform an early check to see if the secrets are matching.  */
+/* unless matching there will be no output of the contents. also in this     */
+/* mode it is possible to pass through empty data. to improve privacy the    */
+/* size of the encoded data will vary randomly when encryption is enabled.   */
 /*                                                                           */
 /* by default the tool generates somewhat smaller amount of data compared    */
 /* to base64 (for data sizes >= 32 bytes) but more importantly it also       */
@@ -19,6 +29,7 @@
 /*                                                                           */
 /* the idea is to make a blend of efficiency and robustness with the main    */
 /* tradeoff that the base77 slice and glue code is a tiny bit math heavy     */
+/* however compared to SHA256 and AES256 the default mode is quite light     */
 /*                                                                           */
 /* the character set is the same as the 1654.c base54 and base16 combined    */
 /* but extended to be case sensitive and with the '*' character added:       */
