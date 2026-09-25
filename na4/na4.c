@@ -651,9 +651,9 @@ static int store_sha256(void *handle, int total_bytes)
   }
 
   if ((total_bytes == 0) && na4_sha256_enabled && !na4_aes256_enabled) {
-      fprintf(stderr, "warning: cannot safely sign 0-byte stream "
-             "without -e (salt); omitting signature\n");
-      return 0;
+    fprintf(stderr, "warning: cannot safely sign 0-byte stream "
+            "without -e (salt); omitting signature\n");
+    return 0;
   }
 
   /* add the SHA256 of the secret key after the data payload */
