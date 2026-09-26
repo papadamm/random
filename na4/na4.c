@@ -627,7 +627,9 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-SHA256_CTX sha256_global_ctx;
+struct na4_context {
+  SHA256_CTX sha256_ctx;
+};
 
 int sha256_derived_key_bytes = 0;
 uint8_t sha256_derived_key[32];
@@ -665,7 +667,8 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 /* when encoding, store the sha256 sum */
 static int store_signature(void *handle, int total_bytes)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t sha256_res[32];
 
   /* no need to store SHA256 when "-s" is missing */
@@ -696,7 +699,8 @@ static int store_signature(void *handle, int total_bytes)
 /* when decoding, compare with the stored sum */
 static int compare_signature(void *handle, int total_bytes)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t sha256_res[32];
 
   /* no need to compare SHA256 when "-s" is missing */
@@ -728,7 +732,8 @@ static int compare_signature(void *handle, int total_bytes)
 
 static int finish_secret_plaintext(void *handle, int total_bytes)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   sha256_final(sha256_derived_key, sha256);
   sha256_derived_key_bytes = 32;
@@ -742,7 +747,8 @@ static int crypto_init_salt(uint8_t *buf, int len);
 
 static int encode_frame(void *handle, uint8_t *buf, int len)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t moshio_frame[INPUT_BUFSIZE];
   int nr_moshio_bytes;
   int nr_data_bytes;
@@ -820,7 +826,8 @@ static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
 
 static int decode_frame(void *handle, uint8_t *buf, int len)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t frame_out[INPUT_BUFSIZE];
   int bytes_out = 0;
   int res = 0;
@@ -1143,7 +1150,8 @@ static int crypto_init_decoder(SHA256_CTX *base_ctx,
 
 static int init_secret(void *handle)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   /* initialize first time for processing the secret */
   sha256_init(sha256);
@@ -1152,7 +1160,8 @@ static int init_secret(void *handle)
 
 static int process_secret(void *handle, uint8_t *buf, int len)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   sha256_update(sha256, buf, len);
   memset(buf, 0, len); /* zero out the secret now when done */
@@ -1161,7 +1170,8 @@ static int process_secret(void *handle, uint8_t *buf, int len)
 
 static int finish_secret_encrypt(void *handle, int total_bytes)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
@@ -1193,7 +1203,8 @@ SHA256_CTX sha256_early_decode_ctx;
 
 static int finish_secret_decrypt(void *handle, int total_bytes)
 {
-  SHA256_CTX *sha256 = handle;
+  struct na4_context *ctx = handle;
+  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   /* save key context for use later when intializing the decoder */
   memcpy(&sha256_early_decode_ctx, sha256, sizeof(SHA256_CTX));
@@ -1431,6 +1442,7 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 
 int main(int argc, char **argv)
 {
+  struct na4_context na4_ctx = {};
   int decode_enabled = 0;
   int secret_bytes = -1;
   int key_bytes;
@@ -1473,16 +1485,16 @@ int main(int argc, char **argv)
 
     if (na4_aes256_enabled) {
       if (decode_enabled) {
-        key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+        key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
                                        secret_bytes, process_secret,
                                        finish_secret_decrypt);
       } else {
-        key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+        key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
                                        secret_bytes, process_secret,
                                        finish_secret_encrypt);
       }
     } else {
-      key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
+      key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
                                      secret_bytes, process_secret,
                                      finish_secret_plaintext);
     }
@@ -1501,11 +1513,11 @@ int main(int argc, char **argv)
   }
 
   if (decode_enabled) {
-    return stdin_fread(&sha256_global_ctx, NULL,
+    return stdin_fread(&na4_ctx, NULL,
                        OUTPUT_BUFSIZE, decode_frame,
                        compare_signature) < 0;
   } else {
-    return stdin_fread(&sha256_global_ctx, NULL,
+    return stdin_fread(&na4_ctx, NULL,
                        INPUT_BUFSIZE, encode_frame,
                        store_signature) < 0;
   }
