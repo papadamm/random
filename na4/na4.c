@@ -123,6 +123,9 @@ struct na4_context {
   uint8_t crypto_moshio_data;
   int sha256_derived_key_bytes;
   uint8_t sha256_derived_key[32];
+  int sha256_decoded_signature_bytes;
+  uint8_t sha256_decoded_signature[32];
+
 };
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
@@ -636,9 +639,6 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-int sha256_stored_sum_bytes = 0;
-uint8_t sha256_stored_sum[32];
-
 /* AES encoder implementation (thanks Gemini) */
 
 #define AES256_ROUNDS 14
@@ -720,18 +720,16 @@ static int compare_signature(void *handle, int total_bytes)
     sha256_final(sha256_res, sha256);
   }
 
-  if (sha256_stored_sum_bytes != 32) {
+  if (ctx->sha256_decoded_signature_bytes != 32) {
     fprintf(stderr, "error: empty stream or missing signature\n");
     return -1;
   }
 
-  if (memcmp(sha256_res, sha256_stored_sum, 32) != 0) {
+  if (memcmp(sha256_res, ctx->sha256_decoded_signature, 32) != 0) {
     fprintf(stderr, "error: signature mismatch\n");
     return -1;
   }
-
-  //fprintf(stderr, "sha256 sum correct\n");
-  return 0;
+  return 0; /* signature correct */
 }
 
 static int finish_secret_plaintext(void *handle, int total_bytes)
@@ -809,18 +807,18 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len);
 static int decode_custom_tail(void *handle, int tail_type,
                               uint8_t *buf, int len)
 {
+  struct na4_context *ctx = handle;
+
   if (tail_type == encode_char_top_64(8)) {
-    if (sha256_stored_sum_bytes == 0) {
-      memcpy(&sha256_stored_sum[0], buf, 16);
-      //fprintf(stderr, "loading sum from tail type 8\n");
-      sha256_stored_sum_bytes = 16;
+    if (ctx->sha256_decoded_signature_bytes == 0) {
+      memcpy(&ctx->sha256_decoded_signature[0], buf, 16);
+      ctx->sha256_decoded_signature_bytes = 16;
     }
   }
   if (tail_type == encode_char_top_64(7)) {
-    if (sha256_stored_sum_bytes == 16) {
-      memcpy(&sha256_stored_sum[16], buf, 16);
-      //fprintf(stderr, "loading sum from tail type 7\n");
-      sha256_stored_sum_bytes = 32;
+    if (ctx->sha256_decoded_signature_bytes == 16) {
+      memcpy(&ctx->sha256_decoded_signature[16], buf, 16);
+      ctx->sha256_decoded_signature_bytes = 32;
     }
   }
   if (tail_type == encode_char_top_64(6)) {
