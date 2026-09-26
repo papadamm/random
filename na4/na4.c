@@ -87,7 +87,6 @@
 /* - Clean up header size calculation and avoid duplicating logic            */
 /* - Tail frame detection logic needs to be straightened out                 */
 /* - stdin_fread() is not exactly easy to read. stdin_fread_secret() is.     */
-/* - Global variables for moshio and crypto headers are not exactly clean    */
 /* - Switch from suffix MAC to HMAC-SHA256                                   */
 /* - Add test cases for the various command line options                     */
 /* - Add help text                                                           */
