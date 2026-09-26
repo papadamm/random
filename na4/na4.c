@@ -419,7 +419,7 @@ static int try_to_decode_top_tail(char tail1, char tail2,
 
   if (tail1 == encode_char_top_64(9)) { /* N bytes of data */
     if (decode_char(tail2) > 27) {
-      fprintf(stderr, "error: tail length char out of range (%c)\n", tail2);
+      fprintf(stderr, "error: tail length char out of range\n");
       return -1;
     }
     *offs = 2;
@@ -479,7 +479,7 @@ static int decode_frame_custom(void *handle,
   for (i = 0; i < len; i++) {
     n = decode_char(buf[i]);
     if (n < 0) {
-      fprintf(stderr, "error: unable to decode ASCII data for char %d\n", i);
+      fprintf(stderr, "error: unable to decode ASCII data\n");
       return -1;
     }
     chars[i] = n;
@@ -531,7 +531,7 @@ static int decode_frame_custom(void *handle,
 
     r = crc4_itu(&num[1], expected_size - 1);
     if (r != (num[0] >> 4)) {
-      fprintf(stderr, "error: crc mismatch (%d, %d)\n", r, num[0] >> 4);
+      fprintf(stderr, "error: crc mismatch\n");
       return -1;
     }
   }
