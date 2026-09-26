@@ -121,6 +121,8 @@ struct na4_context {
   int crypto_header_parsed;
   int crypto_moshio_required;
   uint8_t crypto_moshio_data;
+  int sha256_derived_key_bytes;
+  uint8_t sha256_derived_key[32];
 };
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
@@ -634,9 +636,6 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-int sha256_derived_key_bytes = 0;
-uint8_t sha256_derived_key[32];
-
 int sha256_stored_sum_bytes = 0;
 uint8_t sha256_stored_sum[32];
 
@@ -687,8 +686,9 @@ static int store_signature(void *handle, int total_bytes)
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
-    if (sha256_derived_key_bytes) {
-      sha256_update(sha256, sha256_derived_key, sha256_derived_key_bytes);
+    if (ctx->sha256_derived_key_bytes) {
+      sha256_update(sha256, ctx->sha256_derived_key,
+                    ctx->sha256_derived_key_bytes);
     }
     sha256_final(sha256_res, sha256);
   }
@@ -713,8 +713,9 @@ static int compare_signature(void *handle, int total_bytes)
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
-    if (sha256_derived_key_bytes) {
-      sha256_update(sha256, sha256_derived_key, sha256_derived_key_bytes);
+    if (ctx->sha256_derived_key_bytes) {
+      sha256_update(sha256, ctx->sha256_derived_key,
+                    ctx->sha256_derived_key_bytes);
     }
     sha256_final(sha256_res, sha256);
   }
@@ -738,8 +739,8 @@ static int finish_secret_plaintext(void *handle, int total_bytes)
   struct na4_context *ctx = handle;
   SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
-  sha256_final(sha256_derived_key, sha256);
-  sha256_derived_key_bytes = 32;
+  sha256_final(ctx->sha256_derived_key, sha256);
+  ctx->sha256_derived_key_bytes = 32;
 
   /* initialize once more, this time for actual data processing */
   sha256_init(sha256);
@@ -1189,8 +1190,9 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   sha256_init(sha256);
 
   /* save key for use later when data processing is finished */
-  memcpy(sha256_derived_key, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
-  sha256_derived_key_bytes = 32;
+  memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
+         sizeof(crypto_keys.mac_key));
+  ctx->sha256_derived_key_bytes = 32;
 
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
@@ -1229,9 +1231,9 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
 
     if (ret == 0) {
       /* save key for use later when data processing is finished */
-      memcpy(sha256_derived_key, crypto_keys.mac_key,
+      memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
              sizeof(crypto_keys.mac_key));
-      sha256_derived_key_bytes = 32;
+      ctx->sha256_derived_key_bytes = 32;
 
       aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
       ctx->crypto_header_parsed = 1;
