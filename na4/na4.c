@@ -117,9 +117,9 @@ struct na4_context {
   SHA256_CTX sha256_ctx;
   int aes256_enabled;
   int sha256_enabled;
+  int crypto_header_parsed;
 };
 
-int na4_crypto_header_parsed;
 int na4_crypto_moshio_required;
 uint8_t na4_crypto_moshio_data;
 
@@ -845,7 +845,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return res;
   }
 
-  if (ctx->aes256_enabled && !na4_crypto_header_parsed) {
+  if (ctx->aes256_enabled && !ctx->crypto_header_parsed) {
     fprintf(stderr, "error: stream is not encrypted, but -e was specified\n");
     return  -1;
   }
@@ -1221,11 +1221,12 @@ static int finish_secret_decrypt(void *handle, int total_bytes)
 
 static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
 {
+  struct na4_context *ctx = handle;
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
   int ret = -1;
 
-  if (!na4_crypto_header_parsed) {
+  if (!ctx->crypto_header_parsed) {
     memcpy(&crypto_hdr, buf, len);
     ret = crypto_init_decoder(&sha256_early_decode_ctx,
                               &crypto_hdr, &crypto_keys);
@@ -1237,7 +1238,7 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
       sha256_derived_key_bytes = 32;
 
       aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
-      na4_crypto_header_parsed = 1;
+      ctx->crypto_header_parsed = 1;
     }
     memset(&crypto_hdr, 0, sizeof(crypto_hdr));
     memset(&crypto_keys, 0, sizeof(crypto_keys));
