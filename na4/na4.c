@@ -663,7 +663,7 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 
 /* Simple Suffix-MAC with SHA-256 */
 /* when encoding, store the sha256 sum */
-static int store_sha256(void *handle, int total_bytes)
+static int store_signature(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
@@ -694,7 +694,7 @@ static int store_sha256(void *handle, int total_bytes)
 }
 
 /* when decoding, compare with the stored sum */
-static int compare_sha256(void *handle, int total_bytes)
+static int compare_signature(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t sha256_res[32];
@@ -726,7 +726,7 @@ static int compare_sha256(void *handle, int total_bytes)
   return 0;
 }
 
-static int finish_sha256_plaintext(void *handle, int total_bytes)
+static int finish_secret_plaintext(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
 
@@ -740,7 +740,7 @@ static int finish_sha256_plaintext(void *handle, int total_bytes)
 
 static int crypto_init_salt(uint8_t *buf, int len);
 
-static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
+static int encode_frame(void *handle, uint8_t *buf, int len)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t moshio_frame[INPUT_BUFSIZE];
@@ -794,7 +794,7 @@ static int encode_frame_sha256(void *handle, uint8_t *buf, int len)
   return encode_frame_custom(buf, len, 0);
 }
 
-static int process_frame_sha256_decrypt_late(uint8_t *buf, int len);
+static int process_frame_decrypt_late(uint8_t *buf, int len);
 
 static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
 {
@@ -813,12 +813,12 @@ static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
     }
   }
   if (tail_type == encode_char_top_64(6)) {
-    return process_frame_sha256_decrypt_late(buf, len);
+    return process_frame_decrypt_late(buf, len);
   }
   return 0;
 }
 
-static int decode_frame_sha256(void *handle, uint8_t *buf, int len)
+static int decode_frame(void *handle, uint8_t *buf, int len)
 {
   SHA256_CTX *sha256 = handle;
   uint8_t frame_out[INPUT_BUFSIZE];
@@ -1159,7 +1159,7 @@ static int process_secret(void *handle, uint8_t *buf, int len)
   return len;
 }
 
-static int finish_sha256_encrypt(void *handle, int total_bytes)
+static int finish_secret_encrypt(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
   na4_keys_t crypto_keys = {};
@@ -1191,7 +1191,7 @@ static int finish_sha256_encrypt(void *handle, int total_bytes)
 
 SHA256_CTX sha256_early_decode_ctx;
 
-static int finish_sha256_decrypt(void *handle, int total_bytes)
+static int finish_secret_decrypt(void *handle, int total_bytes)
 {
   SHA256_CTX *sha256 = handle;
 
@@ -1203,7 +1203,7 @@ static int finish_sha256_decrypt(void *handle, int total_bytes)
   return 0;
 }
 
-static int process_frame_sha256_decrypt_late(uint8_t *buf, int len)
+static int process_frame_decrypt_late(uint8_t *buf, int len)
 {
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
@@ -1475,16 +1475,16 @@ int main(int argc, char **argv)
       if (decode_enabled) {
         key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
                                        secret_bytes, process_secret,
-                                       finish_sha256_decrypt);
+                                       finish_secret_decrypt);
       } else {
         key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
                                        secret_bytes, process_secret,
-                                       finish_sha256_encrypt);
+                                       finish_secret_encrypt);
       }
     } else {
       key_bytes = stdin_fread_secret(&sha256_global_ctx, init_secret,
                                      secret_bytes, process_secret,
-                                     finish_sha256_plaintext);
+                                     finish_secret_plaintext);
     }
 
     if (key_bytes != secret_bytes) {
@@ -1502,11 +1502,11 @@ int main(int argc, char **argv)
 
   if (decode_enabled) {
     return stdin_fread(&sha256_global_ctx, NULL,
-                       OUTPUT_BUFSIZE, decode_frame_sha256,
-                       compare_sha256) < 0;
+                       OUTPUT_BUFSIZE, decode_frame,
+                       compare_signature) < 0;
   } else {
     return stdin_fread(&sha256_global_ctx, NULL,
-                       INPUT_BUFSIZE, encode_frame_sha256,
-                       store_sha256) < 0;
+                       INPUT_BUFSIZE, encode_frame,
+                       store_signature) < 0;
   }
 }
