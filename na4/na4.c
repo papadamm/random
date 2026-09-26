@@ -126,6 +126,21 @@ struct na4_context {
   uint8_t sha256_decoded_signature[32];
 };
 
+typedef enum { err_encode_1st_char, err_tail_range,
+               err_tail_signature_range, err_tail_crypto_range,
+               err_decode_ascii, err_decode_1st_char,
+               err_unsupported_tail, err_crc_mismatch,
+               err_empty_stream, err_signature_mismatch,
+               err_stream_not_encrypted, err_buffer_failure,
+               err_encrypted_stream, err_encrypted_stream_no_secret,
+               err_secret_mismatch, err_unable_to_read_secret,
+               err_crypto_no_secret } na4_err_t;
+
+typedef enum { warn_unsafe_sign_zero, warn_unsafe_secret_zero } na4_warn_t;
+
+static void err(struct na4_context *ctx, na4_err_t err);
+static void warn(struct na4_context *ctx, na4_warn_t warn);
+
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
 {
@@ -314,6 +329,7 @@ static int encode_frame_custom(void *handle,
                                uint8_t *buf, int len,
                                char custom_tail)
 {
+  struct na4_context *ctx = handle;
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t rem[OUTPUT_BUFSIZE] = {};
   uint8_t rev[OUTPUT_BUFSIZE] = {};
@@ -346,7 +362,7 @@ static int encode_frame_custom(void *handle,
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
-      fprintf(stderr, "error: unable to encode the first character\n");
+      err(ctx, err_encode_1st_char);
       return -1;
     }
     output_tail(0, 0, rev, 42);
@@ -396,7 +412,8 @@ static int decode_char(int ch)
 }
 
 /* try to decode standard frame types related to plain text */
-static int try_to_decode_top_tail(char tail1, char tail2,
+static int try_to_decode_top_tail(struct na4_context *ctx,
+                                  char tail1, char tail2,
                                   int *offs, int *expected_size)
 {
   if (tail1 == encode_char_top_64(12)) { /* one byte of data */
@@ -419,7 +436,7 @@ static int try_to_decode_top_tail(char tail1, char tail2,
 
   if (tail1 == encode_char_top_64(9)) { /* N bytes of data */
     if (decode_char(tail2) > 27) {
-      fprintf(stderr, "error: tail length char out of range\n");
+      err(ctx, err_tail_range);
       return -1;
     }
     *offs = 2;
@@ -431,12 +448,13 @@ static int try_to_decode_top_tail(char tail1, char tail2,
 }
 
 /* try to decode optional frame types related to signature and encryption */
-static int try_to_decode_top_tail_custom(char tail1, char tail2,
+static int try_to_decode_top_tail_custom(struct na4_context *ctx,
+                                         char tail1, char tail2,
                                          int *offs, int *expected_size)
 {
   if ((tail1 == encode_char_top_64(8)) || (tail1 == encode_char_top_64(7))) {
     if (decode_char(tail2) != (16 - 3)) {
-      fprintf(stderr, "error: sha256 tail length char mismatch\n");
+      err(ctx, err_tail_signature_range);
       return -1;
     }
     *offs = 2;
@@ -445,7 +463,7 @@ static int try_to_decode_top_tail_custom(char tail1, char tail2,
   }
   if (tail1 == encode_char_top_64(6)) {
     if (decode_char(tail2) != (20 - 3)) {
-      fprintf(stderr, "error: crypto tail length char mismatch\n");
+      err(ctx, err_tail_crypto_range);
       return -1;
     }
     *offs = 2;
@@ -462,10 +480,12 @@ static int decode_frame_custom(void *handle,
                                uint8_t *buf, int len,
                                int *dst_bytes,
                                int (*decode_tail_custom)
-                                   (char, char, int *, int *),
+                                   (struct na4_context *,
+                                    char, char, int *, int *),
                                int (*handle_custom_tail)
                                    (void *, int, uint8_t *, int))
 {
+  struct na4_context *ctx = handle;
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t chars[OUTPUT_BUFSIZE] = {};
   uint8_t rev[OUTPUT_BUFSIZE] = {};
@@ -479,7 +499,7 @@ static int decode_frame_custom(void *handle,
   for (i = 0; i < len; i++) {
     n = decode_char(buf[i]);
     if (n < 0) {
-      fprintf(stderr, "error: unable to decode ASCII data\n");
+      err(ctx, err_decode_ascii);
       return -1;
     }
     chars[i] = n;
@@ -487,17 +507,17 @@ static int decode_frame_custom(void *handle,
 
   s = check_bottom_64(encode_char(chars[0]));
   if (s < 0) {
-    fprintf(stderr, "error: unable to decode the first character\n");
+    err(ctx, err_decode_1st_char);
     return -1;
   } else if (s == 1) { /* full frame, expect 42 ASCII characters */
     offs = 0;
     expected_size = 33;
     ret = 0;
   } else {
-    ret = try_to_decode_top_tail(buf[0], buf[1], &offs, &expected_size);
+    ret = try_to_decode_top_tail(ctx, buf[0], buf[1], &offs, &expected_size);
     if (ret == 0) {
       if (decode_tail_custom) {
-	ret = decode_tail_custom(buf[0], buf[1], &offs, &expected_size);
+	ret = decode_tail_custom(ctx, buf[0], buf[1], &offs, &expected_size);
       }
       if (ret == 1) {
 	is_custom_tail = buf[0]; /* yes, it matched the custom tail decoder */
@@ -506,7 +526,7 @@ static int decode_frame_custom(void *handle,
   }
 
   if (ret == -1) {
-    fprintf(stderr, "error: unsupported tail character or decode error\n");
+    err(ctx, err_unsupported_tail);
     return -1;
   }
 
@@ -531,7 +551,7 @@ static int decode_frame_custom(void *handle,
 
     r = crc4_itu(&num[1], expected_size - 1);
     if (r != (num[0] >> 4)) {
-      fprintf(stderr, "error: crc mismatch\n");
+      err(ctx, err_crc_mismatch);
       return -1;
     }
   }
@@ -709,8 +729,7 @@ static int store_signature(void *handle, int total_bytes)
   }
 
   if ((total_bytes == 0) && ctx->sha256_enabled && !ctx->aes256_enabled) {
-    fprintf(stderr, "warning: cannot safely sign 0-byte stream "
-            "without -e (salt); omitting signature\n");
+    warn(ctx, warn_unsafe_sign_zero);
     return 0;
   }
 
@@ -751,12 +770,12 @@ static int compare_signature(void *handle, int total_bytes)
   }
 
   if (ctx->sha256_decoded_signature_bytes != 32) {
-    fprintf(stderr, "error: empty stream or missing signature\n");
+    err(ctx, err_empty_stream);
     return -1;
   }
 
   if (memcmp(sha256_res, ctx->sha256_decoded_signature, 32) != 0) {
-    fprintf(stderr, "error: signature mismatch\n");
+    err(ctx, err_signature_mismatch);
     return -1;
   }
   return 0; /* signature correct */
@@ -876,10 +895,10 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->aes256_enabled && !ctx->crypto_header_parsed) {
-    fprintf(stderr, "error: stream is not encrypted, but -e was specified\n");
+    err(ctx, err_stream_not_encrypted);
     return  -1;
   }
-
+  
   if ((res == 0) || (bytes_out <= 0)) {
     return res;
   }
@@ -930,7 +949,7 @@ static int stdin_fread(void *handle,
   int n, m;
 
   if (bufsize > MAX_BUFSIZE) {
-    fprintf(stderr, "buffer configuration error");
+    err(handle, err_buffer_failure);
     return -1;
   }
 
@@ -1149,14 +1168,13 @@ static int crypto_init_decoder(struct na4_context *ctx,
 
   if (!ctx->aes256_enabled) {
     if (ctx->sha256_enabled) {
-      fprintf(stderr, "error: encrypted stream requires -e\n");
+      err(ctx, err_encrypted_stream);
     } else {
-      fprintf(stderr,
-              "error: stream is encrypted; secret required (-s / -e)\n");
+      err(ctx, err_encrypted_stream_no_secret);
     }
     return -1;
   }
-
+  
   /* 1. Recompute the master key using the salt read from the file */
   kdf_extract_master_late(&ctx->saved_sha256_ctx, master_prk, hdr->salt, 12);
 
@@ -1174,10 +1192,10 @@ static int crypto_init_decoder(struct na4_context *ctx,
   if (diff != 0) {
     /* Wrong password! Clean up keys and fail immediately */
     memset(keys, 0, sizeof(na4_keys_t));
-    fprintf(stderr, "error: incorrect password\n");
+    err(ctx, err_secret_mismatch);
     return -1; 
   }
-
+  
   /* next step is to parse a bit of encrypted salt */
   ctx->crypto_moshio_required = 1;
   ctx->crypto_moshio_data = moshio[0];
@@ -1477,6 +1495,46 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
   }
 }
 
+#define ERR_MSG(n, str) [n] = str
+
+char *err_msg[] = {
+  ERR_MSG(err_encode_1st_char, "unable to encode the first char"),
+  ERR_MSG(err_tail_range, "tail length char out of range"),
+  ERR_MSG(err_tail_signature_range, "sha256 tail length char mismatch"),
+  ERR_MSG(err_tail_crypto_range, "crypto tail length char mismatch"),
+  ERR_MSG(err_decode_ascii, "unable to decode ASCII data"),
+  ERR_MSG(err_decode_1st_char, "unable to decode the first char"),
+  ERR_MSG(err_unsupported_tail, "unsupported tail char or decode error"),
+  ERR_MSG(err_crc_mismatch, "crc mismatch"),
+  ERR_MSG(err_empty_stream, "empty stream or missing signature"),
+  ERR_MSG(err_signature_mismatch, "signature mismatch"),
+  ERR_MSG(err_stream_not_encrypted,
+          "stream is not encrypted, but -e was specified"),
+  ERR_MSG(err_buffer_failure, "buffer failure"),
+  ERR_MSG(err_encrypted_stream, "encrypted stream requires -e"),
+  ERR_MSG(err_encrypted_stream_no_secret,
+          "stream is encrypted; secret required (-s / -e)"),
+  ERR_MSG(err_secret_mismatch, "secret mismatch"),
+  ERR_MSG(err_unable_to_read_secret, "unable to read secret"),
+  ERR_MSG(err_crypto_no_secret,
+          "unable to use crypto without a secret (-s / -e)"),
+};
+
+char *warn_msg[] = {
+  ERR_MSG(warn_unsafe_sign_zero, "cannot safely sign 0-byte stream"),
+  ERR_MSG(warn_unsafe_secret_zero, "using potentially unsafe 0-byte secret"),
+};
+	 
+static void err(struct na4_context *ctx, na4_err_t err)
+{
+  fprintf(stderr, "error: %s\n", err_msg[err]);
+}
+
+static void warn(struct na4_context *ctx, na4_warn_t warn)
+{
+  fprintf(stderr, "warning: %s\n", warn_msg[warn]);
+}
+
 int main(int argc, char **argv)
 {
   struct na4_context na4_ctx = {};
@@ -1518,7 +1576,7 @@ int main(int argc, char **argv)
 
   if (secret_bytes >= 0) {
     if (secret_bytes == 0) {
-      fprintf(stderr, "warning: using potentially unsafe 0-byte secret\n");
+      warn(ctx, warn_unsafe_secret_zero);
     }
 
     if (ctx->aes256_enabled) {
@@ -1535,15 +1593,13 @@ int main(int argc, char **argv)
     }
 
     if (key_bytes != secret_bytes) {
-      fprintf(stderr, "error: unable to read secret (%d, %d)\n",
-              key_bytes, secret_bytes);
+      err(ctx, err_unable_to_read_secret);
       return 1;
     }
   }
 
   if (ctx->aes256_enabled && !ctx->sha256_enabled) {
-    fprintf(stderr,
-            "error: unable to use crypto without a secret (-s / -e)\n");
+    err(ctx, err_crypto_no_secret);
     return 1;
   }
 
