@@ -115,6 +115,7 @@ typedef struct {
 
 struct na4_context {
   SHA256_CTX sha256_ctx;
+  SHA256_CTX saved_sha256_ctx;
   int aes256_enabled;
   int sha256_enabled;
   int crypto_header_parsed;
@@ -996,11 +997,10 @@ typedef struct {
  * Helper: PBKDF2-like iterated hashing using your SHA256 primitives.
  * Performs KDF_ITERATIONS rounds of SHA-256 over (salt || secret).
  */
-static void kdf_extract_master_late(struct na4_context *na4_ctx,
+static void kdf_extract_master_late(SHA256_CTX *base_ctx,
                                     uint8_t master_prk[32],
                                     const uint8_t *salt, size_t salt_len)
 {
-  SHA256_CTX *base_ctx = &na4_ctx->sha256_ctx;
   SHA256_CTX ctx;
   uint32_t i;
 
@@ -1095,7 +1095,7 @@ static int crypto_init_encoder_late(struct na4_context *ctx,
 
   /* 1. Generate 12 bytes of fresh random salt from CSPRNG (done) */
   /* 2. Compute iterated master key */
-  kdf_extract_master_late(ctx, master_prk, hdr->salt, 12);
+  kdf_extract_master_late(&ctx->sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 3. Expand into several keys and check tokens */
   kdf_expand_keys(keys, hdr->check_token, hdr->moshio, master_prk);
@@ -1124,7 +1124,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   }
 
   /* 1. Recompute the master key using the salt read from the file */
-  kdf_extract_master_late(ctx, master_prk, hdr->salt, 12);
+  kdf_extract_master_late(&ctx->saved_sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 2. Expand keys and compute what the check token SHOULD be */
   kdf_expand_keys(keys, computed_token, moshio, master_prk);
@@ -1203,15 +1203,13 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   return 0;
 }
 
-struct na4_context sha256_early_decode_ctx;
-
 static int finish_secret_decrypt(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
   SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   /* save key context for use later when intializing the decoder */
-  memcpy(&sha256_early_decode_ctx, ctx, sizeof(struct na4_context));
+  memcpy(&ctx->saved_sha256_ctx, sha256, sizeof(SHA256_CTX));
 
   /* initialize once more, this time for actual data processing */
   sha256_init(sha256);
@@ -1227,8 +1225,7 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
 
   if (!ctx->crypto_header_parsed) {
     memcpy(&crypto_hdr, buf, len);
-    ret = crypto_init_decoder(&sha256_early_decode_ctx,
-                              &crypto_hdr, &crypto_keys);
+    ret = crypto_init_decoder(ctx, &crypto_hdr, &crypto_keys);
 
     if (ret == 0) {
       /* save key for use later when data processing is finished */
