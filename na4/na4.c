@@ -141,6 +141,7 @@ struct na4_context {
   int (*read)(struct na4_context *, uint8_t *, int);
   int (*write)(struct na4_context *, uint8_t *, int);
   void (*flush)(struct na4_context *);
+  int (*salt)(struct na4_context *, uint8_t *, int);
 };
 
 #define ERROR(c, m) c->err(c, m)
@@ -801,8 +802,6 @@ static int finish_secret_plaintext(void *handle, int total_bytes)
   return 0;
 }
 
-static int crypto_init_salt(uint8_t *buf, int len);
-
 static int encode_frame(void *handle, uint8_t *buf, int len)
 {
   struct na4_context *ctx = handle;
@@ -815,7 +814,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
   /* initial encrypted moshio frame, prevents disclosing encoded data size */
   if (ctx->crypto_moshio_required) {
     /* generate 32 bytes of random data, use 1-16 bytes as prefix */
-    if (crypto_init_salt(&moshio_frame[0], INPUT_BUFSIZE) < 0) {
+    if (ctx->salt(ctx, &moshio_frame[0], INPUT_BUFSIZE) < 0) {
       return -1;
     }
 
@@ -1136,20 +1135,6 @@ static void kdf_expand_keys(na4_keys_t *keys,
   memset(h, 0, sizeof(h));
 }
 
-static int crypto_init_salt(uint8_t *buf, int len)
-{
-  FILE *f;
-
-  /* Generate N bytes of fresh random salt from CSPRNG */
-  f = fopen("/dev/urandom", "rb");
-  if (!f || fread(buf, 1, len, f) != len) {
-    if (f) fclose(f);
-      return -1;
-  }
-  fclose(f);
-  return 0;
-}
-
 static int crypto_init_encoder_late(struct na4_context *ctx,
                                     na4_crypto_hdr_t *hdr, na4_keys_t *keys)
 {
@@ -1240,7 +1225,7 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
-  if (crypto_init_salt(&crypto_hdr.salt[0], 12) < 0) {
+  if (ctx->salt(ctx, &crypto_hdr.salt[0], 12) < 0) {
     return -1;
   }
 
@@ -1559,6 +1544,21 @@ static void na4_flush(struct na4_context *ctx)
   fflush(stdout);
 }
 
+static int na4_salt(struct na4_context *ctx, uint8_t *buf, int len)
+{
+  FILE *f;
+
+  /* Generate N bytes of fresh random salt from CSPRNG */
+  f = fopen("/dev/urandom", "rb");
+  if (!f || fread(buf, 1, len, f) != len) {
+    if (f) fclose(f);
+      return -1;
+  }
+  fclose(f);
+  return 0;
+}
+
+
 int main(int argc, char **argv)
 {
   struct na4_context na4_ctx = {};
@@ -1573,6 +1573,7 @@ int main(int argc, char **argv)
   na4_ctx.read = na4_read;
   na4_ctx.write = na4_write;
   na4_ctx.flush = na4_flush;
+  na4_ctx.salt = na4_salt;
   
   while(1) {
     if (argc >= (i + 1)) {
