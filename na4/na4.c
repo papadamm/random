@@ -887,17 +887,21 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
 #define MAX_BUFSIZE MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)
 
-static uint8_t buf[MAX_BUFSIZE];
-
 static int stdin_fread(void *handle,
 		       int (*c)(void *),
 		       int bufsize,
 		       int (*f)(void *, uint8_t *, int),
 		       int (*e)(void *, int))
 {
+  uint8_t buf[MAX_BUFSIZE];
   int total_bytes = 0;
   int cnt;
   int n, m;
+
+  if (bufsize > MAX_BUFSIZE) {
+    fprintf(stderr, "buffer configuration error");
+    return -1;
+  }
 
   if (c) {
     if (c(handle) < 0) {
