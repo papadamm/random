@@ -118,10 +118,9 @@ struct na4_context {
   int aes256_enabled;
   int sha256_enabled;
   int crypto_header_parsed;
+  int crypto_moshio_required;
+  uint8_t crypto_moshio_data;
 };
-
-int na4_crypto_moshio_required;
-uint8_t na4_crypto_moshio_data;
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
@@ -758,14 +757,14 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
   int n;
 
   /* initial encrypted moshio frame, prevents disclosing encoded data size */
-  if (na4_crypto_moshio_required) {
+  if (ctx->crypto_moshio_required) {
     /* generate 32 bytes of random data, use 1-16 bytes as prefix */
     if (crypto_init_salt(&moshio_frame[0], INPUT_BUFSIZE) < 0) {
       return -1;
     }
 
     /* store first frame length at a position determined by the hash */
-    nr_moshio_bytes = na4_crypto_moshio_data & 0x0f;
+    nr_moshio_bytes = ctx->crypto_moshio_data & 0x0f;
     nr_data_bytes = MIN(INPUT_BUFSIZE - (nr_moshio_bytes + 1), len);
     moshio_frame[nr_moshio_bytes] = nr_data_bytes;
     nr_moshio_bytes++;
@@ -784,7 +783,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     encode_frame_custom(handle, &moshio_frame[0], n, 0);
 
-    na4_crypto_moshio_required = 0;
+    ctx->crypto_moshio_required = 0;
     return nr_data_bytes; /* short */
   }
 
@@ -863,18 +862,18 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   /* simply skip over initial encrypted moshio data */
-  if (na4_crypto_moshio_required) {
+  if (ctx->crypto_moshio_required) {
     int nr_moshio_bytes;
     int stored_len;
     int nr_data_bytes;
 
     /* determine number of moshio bytes to skip by the hash */
-    nr_moshio_bytes = na4_crypto_moshio_data & 0x0f;
+    nr_moshio_bytes = ctx->crypto_moshio_data & 0x0f;
     stored_len = frame_out[nr_moshio_bytes];
     nr_moshio_bytes++;
     nr_data_bytes = MIN(INPUT_BUFSIZE - nr_moshio_bytes, stored_len);
 
-    na4_crypto_moshio_required = 0;
+    ctx->crypto_moshio_required = 0;
 
     fwrite(&frame_out[nr_moshio_bytes], nr_data_bytes, 1, stdout);
     fflush(stdout);
@@ -1146,8 +1145,8 @@ static int crypto_init_decoder(struct na4_context *ctx,
   }
 
   /* next step is to parse a bit of encrypted salt */
-  na4_crypto_moshio_required = 1;
-  na4_crypto_moshio_data = moshio[0];
+  ctx->crypto_moshio_required = 1;
+  ctx->crypto_moshio_data = moshio[0];
 
   /* Token matched! Ready to start decrypting frames straight to stdout */
   return 0;
@@ -1196,8 +1195,8 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
   /* next step is to output a bit of encrypted salt */
-  na4_crypto_moshio_required = 1;
-  na4_crypto_moshio_data = crypto_hdr.moshio[0];
+  ctx->crypto_moshio_required = 1;
+  ctx->crypto_moshio_data = crypto_hdr.moshio[0];
 
   memset(&crypto_hdr, 0, sizeof(crypto_hdr));
   memset(&crypto_keys, 0, sizeof(crypto_keys));
