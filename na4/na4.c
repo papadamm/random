@@ -138,6 +138,9 @@ struct na4_context {
   uint8_t sha256_decoded_signature[32];
   void (*err)(struct na4_context *, na4_err_t);
   void (*warn)(struct na4_context *, na4_warn_t);
+  int (*read)(struct na4_context *, uint8_t *, int);
+  int (*write)(struct na4_context *, uint8_t *, int);
+  void (*flush)(struct na4_context *);
 };
 
 #define ERROR(c, m) c->err(c, m)
@@ -282,27 +285,29 @@ static uint16_t frame_size[] = {
   [BITS(256)] = REGULAR(42),    /* 260.33 bits DATA + 4 bits CRC */
 };
 
-static void output_tail(char tail1, char tail2, uint8_t *buf, int len)
+static void output_tail(struct na4_context *ctx,
+                        char tail1, char tail2, uint8_t *buf, int len)
 {
   int adj = 0;
   int i;
 
   if (tail1) {
-    printf("%c", tail1);
+    ctx->write(ctx, (void *)&tail1, 1);
     adj++;
   }
 
   if (tail2) {
-    printf("%c", tail2);
+    ctx->write(ctx, (void *)&tail2, 1);
     adj++;
   }
 
-  /* output encoded data on stdout */
+  /* output encoded data */
   for (i = 0; i < (len - adj); i++) {
-    printf("%c", encode_char(buf[i]));
+    uint8_t ch = encode_char(buf[i]);
+    ctx->write(ctx, &ch, 1);
   }
 
-  fflush(stdout);
+  ctx->flush(ctx);
 }
 
 static void reverse_data(uint8_t *dst, uint8_t *src,
@@ -359,7 +364,7 @@ static int encode_frame_custom(void *handle,
 
   /* any frame with less than 32 bytes input data needs tail encoding */
   if (custom_tail) { /* custom tails have to be less than 32 bytes */
-    output_tail(custom_tail, encode_char(len - 3), rev, frame_size[len]);
+    output_tail(ctx, custom_tail, encode_char(len - 3), rev, frame_size[len]);
   } else if (len == 32) { /* encode full frame */
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
@@ -367,15 +372,15 @@ static int encode_frame_custom(void *handle,
       ERROR(ctx, err_encode_1st_char);
       return -1;
     }
-    output_tail(0, 0, rev, 42);
+    output_tail(ctx, 0, 0, rev, 42);
   } else if (len == 1) {
-    output_tail(encode_char_top_64(12), 0, rev, frame_size[len]);
+    output_tail(ctx, encode_char_top_64(12), 0, rev, frame_size[len]);
   } else if (len == 2) {
-    output_tail(encode_char_top_64(11), 0, rev, frame_size[len]);
+    output_tail(ctx, encode_char_top_64(11), 0, rev, frame_size[len]);
   } else if (len == 31) {
-    output_tail(encode_char_top_64(10), 0, rev, frame_size[len]);
+    output_tail(ctx, encode_char_top_64(10), 0, rev, frame_size[len]);
   } else {
-    output_tail(encode_char_top_64(9), encode_char(len - 3),
+    output_tail(ctx, encode_char_top_64(9), encode_char(len - 3),
                 rev, frame_size[len]);
   }
   return len;
@@ -927,13 +932,13 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
     ctx->crypto_moshio_required = 0;
 
-    fwrite(&frame_out[nr_moshio_bytes], nr_data_bytes, 1, stdout);
-    fflush(stdout);
+    ctx->write(ctx, &frame_out[nr_moshio_bytes], nr_data_bytes);
+    ctx->flush(ctx);
     return res;
   }
 
-  fwrite(frame_out, bytes_out, 1, stdout);
-  fflush(stdout);
+  ctx->write(ctx, frame_out, bytes_out);
+  ctx->flush(ctx);
   return res;
 }
 
@@ -969,7 +974,7 @@ static int stdin_fread(void *handle,
   read_again:
     /* read one byte at a time to fill up to bufsize */
     do {
-      n = fread(&buf[cnt], 1, 1, stdin);
+      n = ctx->read(ctx, &buf[cnt], 1);
       if (n) {
         cnt++;
       }
@@ -1007,6 +1012,7 @@ static int stdin_fread_secret(void *handle,
                               int (*f)(void *, uint8_t *, int),
                               int (*e)(void *, int))
 {
+  struct na4_context *ctx = handle;
   int total_bytes = 0;
   uint8_t ch = 0;
   int n, m;
@@ -1016,7 +1022,7 @@ static int stdin_fread_secret(void *handle,
   }
 
   while (total_bytes < xfer_size) {
-    n = fread(&ch, 1, 1, stdin);
+    n = ctx->read(ctx, &ch, 1);
     if (n > 0) {
       m = f(handle, &ch, 1);
       if (m < 0) {
@@ -1538,6 +1544,21 @@ static void na4_warn(struct na4_context *ctx, na4_warn_t warn)
   fprintf(stderr, "warning: %s\n", warn_msg[warn]);
 }
 
+static int na4_read(struct na4_context *ctx, uint8_t *buf, int bytes)
+{
+  return fread(buf, 1, bytes, stdin);
+}
+
+static int na4_write(struct na4_context *ctx, uint8_t *buf, int bytes)
+{
+  return fwrite(buf, bytes, 1, stdout);
+}
+
+static void na4_flush(struct na4_context *ctx)
+{
+  fflush(stdout);
+}
+
 int main(int argc, char **argv)
 {
   struct na4_context na4_ctx = {};
@@ -1549,6 +1570,9 @@ int main(int argc, char **argv)
 
   na4_ctx.err = na4_err;
   na4_ctx.warn = na4_warn;
+  na4_ctx.read = na4_read;
+  na4_ctx.write = na4_write;
+  na4_ctx.flush = na4_flush;
   
   while(1) {
     if (argc >= (i + 1)) {
