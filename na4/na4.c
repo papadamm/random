@@ -307,7 +307,9 @@ static void reverse_data(uint8_t *dst, uint8_t *src,
   }
 }
 
-static int encode_frame_custom(uint8_t *buf, int len, char custom_tail)
+static int encode_frame_custom(void *handle,
+                               uint8_t *buf, int len,
+                               char custom_tail)
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t rem[OUTPUT_BUFSIZE] = {};
@@ -391,10 +393,12 @@ static int decode_char(int ch)
 }
 
 /* decode incoming ASCII characters, generate binary data */
-static int decode_frame_custom(uint8_t *dst, int dst_len,
+static int decode_frame_custom(void *handle,
+                               uint8_t *dst, int dst_len,
                                uint8_t *buf, int len,
                                int *dst_bytes,
-                               int (*handle_custom_tail)(int, uint8_t *, int))
+                               int (*handle_custom_tail)
+                                   (void *, int, uint8_t *, int))
 {
   uint8_t num[PROCESS_BUFSIZE] = {};
   uint8_t chars[OUTPUT_BUFSIZE] = {};
@@ -500,7 +504,7 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
 
   if (is_custom_tail) {
     if (handle_custom_tail) {
-      if (handle_custom_tail(is_custom_tail, &num[1], n) < 0) {
+      if (handle_custom_tail(handle, is_custom_tail, &num[1], n) < 0) {
 	return -1;
       }
     }
@@ -690,8 +694,8 @@ static int store_signature(void *handle, int total_bytes)
   }
 
   /* store key as two custom tail frames (7 after 8) */
-  encode_frame_custom(&sha256_res[0], 16, encode_char_top_64(8));
-  encode_frame_custom(&sha256_res[16], 16, encode_char_top_64(7));
+  encode_frame_custom(handle, &sha256_res[0], 16, encode_char_top_64(8));
+  encode_frame_custom(handle, &sha256_res[16], 16, encode_char_top_64(7));
   return 0;
 }
 
@@ -778,7 +782,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
       sha256_update(sha256, &moshio_frame[0], n);
     }
 
-    encode_frame_custom(&moshio_frame[0], n, 0);
+    encode_frame_custom(handle, &moshio_frame[0], n, 0);
 
     na4_crypto_moshio_required = 0;
     return nr_data_bytes; /* short */
@@ -796,12 +800,13 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
    sha256_update(sha256, buf, len);
   }
 
-  return encode_frame_custom(buf, len, 0);
+  return encode_frame_custom(handle, buf, len, 0);
 }
 
-static int process_frame_decrypt_late(uint8_t *buf, int len);
+static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len);
 
-static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
+static int decode_custom_tail(void *handle, int tail_type,
+                              uint8_t *buf, int len)
 {
   if (tail_type == encode_char_top_64(8)) {
     if (sha256_stored_sum_bytes == 0) {
@@ -818,7 +823,7 @@ static int decode_custom_tail(int tail_type, uint8_t *buf, int len)
     }
   }
   if (tail_type == encode_char_top_64(6)) {
-    return process_frame_decrypt_late(buf, len);
+    return process_frame_decrypt_late(handle, buf, len);
   }
   return 0;
 }
@@ -834,7 +839,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   if (len == 0)
     return 0;
 
-  res = decode_frame_custom(frame_out, INPUT_BUFSIZE, buf, len,
+  res = decode_frame_custom(handle, frame_out, INPUT_BUFSIZE, buf, len,
 			    &bytes_out, decode_custom_tail);
   if (res < 0) {
     return res;
@@ -1098,7 +1103,7 @@ static int crypto_init_encoder_late(struct na4_context *ctx,
   memset(master_prk, 0, sizeof(master_prk));
 
   /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) as Frame 0 */
-  encode_frame_custom((void *)hdr, 20, encode_char_top_64(6));
+  encode_frame_custom((void *)ctx, (void *)hdr, 20, encode_char_top_64(6));
   return 0;
 }
 
@@ -1214,7 +1219,7 @@ static int finish_secret_decrypt(void *handle, int total_bytes)
   return 0;
 }
 
-static int process_frame_decrypt_late(uint8_t *buf, int len)
+static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
 {
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
@@ -1507,7 +1512,7 @@ int main(int argc, char **argv)
     }
   }
 
-  if (ctx->aes256_enabled && !ctx->sha256_enabled) { 
+  if (ctx->aes256_enabled && !ctx->sha256_enabled) {
     fprintf(stderr,
             "error: unable to use crypto without a secret (-s / -e)\n");
     return 1;
