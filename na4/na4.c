@@ -395,6 +395,67 @@ static int decode_char(int ch)
   return -1;
 }
 
+/* try to decode standard frame types related to plain text */
+static int try_to_decode_top_tail(char tail1, char tail2,
+                                  int *offs, int *expected_size)
+{
+  if (tail1 == encode_char_top_64(12)) { /* one byte of data */
+    *offs = 1;
+    *expected_size = 2;
+    return 1;
+  }
+
+  if (tail1 == encode_char_top_64(11)) { /* two bytes of data */
+    *offs = 1;
+    *expected_size = 3;
+    return 1;
+  }
+
+  if (tail1 == encode_char_top_64(10)) { /* 31 bytes of data */
+    *offs = 1;
+    *expected_size = 32;
+    return 1;
+  }
+
+  if (tail1 == encode_char_top_64(9)) { /* N bytes of data */
+    if (decode_char(tail2) > 27) {
+      fprintf(stderr, "error: tail length char out of range (%c)\n", tail2);
+      return -1;
+    }
+    *offs = 2;
+    *expected_size = decode_char(tail2) + 3 + 1;
+    return 1;
+  }
+
+  return 0;
+}
+
+/* try to decode optional frame types related to signature and encryption */
+static int try_to_decode_top_tail_custom(char tail1, char tail2,
+                                         int *offs, int *expected_size)
+{
+  if ((tail1 == encode_char_top_64(8)) || (tail1 == encode_char_top_64(7))) {
+    if (decode_char(tail2) != (16 - 3)) {
+      fprintf(stderr, "error: sha256 tail length char mismatch\n");
+      return -1;
+    }
+    *offs = 2;
+    *expected_size = decode_char(tail2) + 3 + 1;
+    return 1;
+  }
+  if (tail1 == encode_char_top_64(6)) {
+    if (decode_char(tail2) != (20 - 3)) {
+      fprintf(stderr, "error: crypto tail length char mismatch\n");
+      return -1;
+    }
+    *offs = 2;
+    *expected_size = decode_char(tail2) + 3 + 1;
+    return 1;
+  }
+
+  return 0;
+}
+
 /* decode incoming ASCII characters, generate binary data */
 static int decode_frame_custom(void *handle,
                                uint8_t *dst, int dst_len,
@@ -410,6 +471,7 @@ static int decode_frame_custom(void *handle,
   int offs, expected_size;
   int output_length;
   int is_custom_tail = 0;
+  int ret = -1;
 
   /* convert ASCII encoded data to integers */
   for (i = 0; i < len; i++) {
@@ -428,52 +490,20 @@ static int decode_frame_custom(void *handle,
   } else if (s == 1) { /* full frame, expect 42 ASCII characters */
     offs = 0;
     expected_size = 33;
-  } else if (encode_char(chars[0]) == encode_char_top_64(12)) {
-    /* one byte of data */
-    offs = 1;
-    expected_size = 2;
-  } else if (encode_char(chars[0]) == encode_char_top_64(11)) {
-    /* two bytes of data */
-    offs = 1;
-    expected_size = 3;
-  } else if (encode_char(chars[0]) == encode_char_top_64(10)) {
-    /* 31 bytes of data */
-    offs = 1;
-    expected_size = 32;
-  } else if (encode_char(chars[0]) == encode_char_top_64(9)) {
-    /* N bytes of data */
-    if (chars[1] > 27) {
-      fprintf(stderr, "error: tail length char out of range (%d)\n", chars[1]);
-      return -1;
-    }
-    offs = 2;
-    expected_size = chars[1] + 3 + 1;
-  } else if (encode_char(chars[0]) == encode_char_top_64(8)) {
-    if (chars[1] != (16 - 3)) {
-      fprintf(stderr, "error: sha256 tail length char mismatch\n");
-      return -1;
-    }
-    is_custom_tail = encode_char_top_64(8);
-    offs = 2;
-    expected_size = chars[1] + 3 + 1;
-  } else if (encode_char(chars[0]) == encode_char_top_64(7)) {
-    if (chars[1] != (16 - 3)) {
-      fprintf(stderr, "error: sha256 tail length char mismatch\n");
-      return -1;
-    }
-    is_custom_tail = encode_char_top_64(7);
-    offs = 2;
-    expected_size = chars[1] + 3 + 1;
-  } else if (encode_char(chars[0]) == encode_char_top_64(6)) {
-    if (chars[1] != (20 - 3)) {
-      fprintf(stderr, "error: crypto tail length char mismatch\n");
-      return -1;
-    }
-    is_custom_tail = encode_char_top_64(6);
-    offs = 2;
-    expected_size = chars[1] + 3 + 1;
+    ret = 0;
   } else {
-    fprintf(stderr, "error: unsupported tail character\n");
+    ret = try_to_decode_top_tail(buf[0], buf[1], &offs, &expected_size);
+    if (ret == 0) {
+      ret = try_to_decode_top_tail_custom(buf[0], buf[1],
+                                          &offs, &expected_size);
+      if (ret == 1) {
+	is_custom_tail = buf[0]; /* yes, it matched the custom tail decoder */
+      }
+    }
+  }
+
+  if (ret == -1) {
+    fprintf(stderr, "error: unsupported tail character or decode error\n");
     return -1;
   }
 
@@ -511,14 +541,13 @@ static int decode_frame_custom(void *handle,
 	return -1;
       }
     }
-    
-    if (dst_bytes)
-      *dst_bytes = 0;
+    n = 0;
   } else {
     memcpy(dst, &num[1], n);
+  }
 
-    if (dst_bytes)
-      *dst_bytes = n;
+  if (dst_bytes) {
+    *dst_bytes = n;
   }
 
   return output_length; /* number of source bytes processed */
