@@ -1056,7 +1056,6 @@ static int read_secret(void *handle,
 typedef struct {
   uint8_t salt[12];        /* Nonce / KDF Salt */
   uint8_t check_token[8];  /* Fast verification tag */
-  uint8_t moshio[1];       /* Parameter used for encrypted salt */
 } na4_crypto_hdr_t;
 
 /* Holds derived active keys */
@@ -1098,9 +1097,9 @@ static void kdf_extract_master_late(SHA256_CTX *base_ctx,
 /*
  * Derives AES Key, MAC Key, and the 8-byte Check Token from the master key.
  */
-static void kdf_expand_keys(na4_keys_t *keys,
+static void kdf_expand_keys(struct na4_context *na4_ctx,
+                            na4_keys_t *keys,
                             uint8_t check_token[8],
-                            uint8_t moshio[1],
                             const uint8_t master_prk[32])
 {
   SHA256_CTX ctx;
@@ -1132,7 +1131,7 @@ static void kdf_expand_keys(na4_keys_t *keys,
   sha256_update(&ctx, (const uint8_t *)"chk-moshio", 10);
   sha256_final(h, &ctx);
 
-  memcpy(moshio, h, 1);
+  memcpy(&na4_ctx->crypto_moshio_data, h, 1);
 
   /* Derive 12-byte CTR Nonce */
   sha256_init(&ctx);
@@ -1156,7 +1155,7 @@ static int crypto_init_encoder_late(struct na4_context *ctx,
   kdf_extract_master_late(&ctx->sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 3. Expand into several keys and check tokens */
-  kdf_expand_keys(keys, hdr->check_token, hdr->moshio, master_prk);
+  kdf_expand_keys(ctx, keys, hdr->check_token, master_prk);
   memset(master_prk, 0, sizeof(master_prk));
 
   /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) as Frame 0 */
@@ -1169,7 +1168,6 @@ static int crypto_init_decoder(struct na4_context *ctx,
 {
   uint8_t master_prk[32];
   uint8_t computed_token[8];
-  uint8_t moshio[1];
 
   if (!ctx->aes256_enabled) {
     if (ctx->sha256_enabled) {
@@ -1184,7 +1182,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   kdf_extract_master_late(&ctx->saved_sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 2. Expand keys and compute what the check token SHOULD be */
-  kdf_expand_keys(keys, computed_token, moshio, master_prk);
+  kdf_expand_keys(ctx, keys, computed_token, master_prk);
   memset(master_prk, 0, sizeof(master_prk));
 
   /* 3. Constant-time comparison: did the password match? */
@@ -1203,7 +1201,6 @@ static int crypto_init_decoder(struct na4_context *ctx,
   
   /* next step is to parse a bit of encrypted salt */
   ctx->crypto_moshio_required = 1;
-  ctx->crypto_moshio_data = moshio[0];
 
   /* Token matched! Ready to start decrypting frames straight to stdout */
   return 0;
@@ -1254,7 +1251,6 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
 
   /* next step is to output a bit of encrypted salt */
   ctx->crypto_moshio_required = 1;
-  ctx->crypto_moshio_data = crypto_hdr.moshio[0];
 
   memset(&crypto_hdr, 0, sizeof(crypto_hdr));
   memset(&crypto_keys, 0, sizeof(crypto_keys));
