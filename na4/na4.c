@@ -1489,6 +1489,54 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
   }
 }
 
+int na4_setup_secret(struct na4_context *ctx,
+                     int decode_enabled,
+                     int secret_bytes)
+{
+  int key_bytes;
+
+  if (secret_bytes >= 0) {
+    if (secret_bytes == 0) {
+      WARNING(ctx, warn_unsafe_secret_zero);
+    }
+
+    if (ctx->aes256_enabled) {
+      if (decode_enabled) {
+        key_bytes = read_secret(ctx, init_secret, secret_bytes,
+                                process_secret, finish_secret_decrypt);
+      } else {
+        key_bytes = read_secret(ctx, init_secret, secret_bytes,
+                                process_secret, finish_secret_encrypt);
+      }
+    } else {
+      key_bytes = read_secret(ctx, init_secret, secret_bytes,
+                              process_secret, finish_secret_plaintext);
+    }
+
+    if (key_bytes != secret_bytes) {
+      ERROR(ctx, err_unable_to_read_secret);
+      return 1;
+    }
+  }
+
+  if (ctx->aes256_enabled && !ctx->sha256_enabled) {
+    ERROR(ctx, err_crypto_no_secret);
+    return 1;
+  }
+
+  return 0;
+}
+int na4_encode_or_decode(struct na4_context *ctx, int decode_enabled)
+{
+  if (decode_enabled) {
+    return read_data(ctx, NULL, OUTPUT_BUFSIZE,
+                     decode_frame, compare_signature) < 0;
+  } else {
+    return read_data(ctx, NULL, INPUT_BUFSIZE,
+                     encode_frame, store_signature) < 0;
+  }
+}
+
 #define ERR_MSG(n, str) [n] = str
 
 char *err_msg[] = {
@@ -1562,10 +1610,8 @@ static int na4_salt(struct na4_context *ctx, uint8_t *buf, int len)
 int main(int argc, char **argv)
 {
   struct na4_context na4_ctx = {};
-  struct na4_context *ctx = &na4_ctx;
   int decode_enabled = 0;
   int secret_bytes = -1;
-  int key_bytes;
   int i = 1;
 
   na4_ctx.err = na4_err;
@@ -1583,7 +1629,7 @@ int main(int argc, char **argv)
       } else if (strcmp(argv[i], "-s") == 0) {
         if ((argc >= (i + 2))) {
           if (sscanf(argv[i + 1], "%u", &secret_bytes) == 1) {
-            ctx->sha256_enabled = 1;
+            na4_ctx.sha256_enabled = 1;
             i += 2;
           }
         }
@@ -1597,7 +1643,7 @@ int main(int argc, char **argv)
         i++;
         continue;
       } else if (strcmp(argv[i], "-e") == 0) {
-        ctx->aes256_enabled = 1;
+        na4_ctx.aes256_enabled = 1;
         i++;
         continue;
       }
@@ -1605,40 +1651,8 @@ int main(int argc, char **argv)
     break;
   }
 
-  if (secret_bytes >= 0) {
-    if (secret_bytes == 0) {
-      WARNING(ctx, warn_unsafe_secret_zero);
-    }
-
-    if (ctx->aes256_enabled) {
-      if (decode_enabled) {
-        key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
-                                process_secret, finish_secret_decrypt);
-      } else {
-        key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
-                                process_secret, finish_secret_encrypt);
-      }
-    } else {
-      key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
-                              process_secret, finish_secret_plaintext);
-    }
-
-    if (key_bytes != secret_bytes) {
-      ERROR(ctx, err_unable_to_read_secret);
-      return 1;
-    }
-  }
-
-  if (ctx->aes256_enabled && !ctx->sha256_enabled) {
-    ERROR(ctx, err_crypto_no_secret);
+  if (na4_setup_secret(&na4_ctx, decode_enabled, secret_bytes) != 0) {
     return 1;
   }
-
-  if (decode_enabled) {
-    return read_data(&na4_ctx, NULL, OUTPUT_BUFSIZE,
-                     decode_frame, compare_signature) < 0;
-  } else {
-    return read_data(&na4_ctx, NULL, INPUT_BUFSIZE,
-                     encode_frame, store_signature) < 0;
-  }
+  return na4_encode_or_decode(&na4_ctx, decode_enabled);
 }
