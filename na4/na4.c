@@ -116,9 +116,8 @@ typedef struct {
 struct na4_context {
   SHA256_CTX sha256_ctx;
   int aes256_enabled;
+  int sha256_enabled;
 };
-
-int na4_sha256_enabled;
 
 int na4_crypto_header_parsed;
 int na4_crypto_moshio_required;
@@ -672,11 +671,11 @@ static int store_signature(void *handle, int total_bytes)
   uint8_t sha256_res[32];
 
   /* no need to store SHA256 when "-s" is missing */
-  if (!na4_sha256_enabled) {
+  if (!ctx->sha256_enabled) {
     return 0;
   }
 
-  if ((total_bytes == 0) && na4_sha256_enabled && !ctx->aes256_enabled) {
+  if ((total_bytes == 0) && ctx->sha256_enabled && !ctx->aes256_enabled) {
     fprintf(stderr, "warning: cannot safely sign 0-byte stream "
             "without -e (salt); omitting signature\n");
     return 0;
@@ -704,7 +703,7 @@ static int compare_signature(void *handle, int total_bytes)
   uint8_t sha256_res[32];
 
   /* no need to compare SHA256 when "-s" is missing */
-  if (!na4_sha256_enabled) {
+  if (!ctx->sha256_enabled) {
     return 0;
   }
 
@@ -775,7 +774,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 			    &na4_ctr_state, &na4_aes256_ctx);
     }
 
-    if (na4_sha256_enabled) {
+    if (ctx->sha256_enabled) {
       sha256_update(sha256, &moshio_frame[0], n);
     }
 
@@ -793,7 +792,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
   }
 
-  if (na4_sha256_enabled) {
+  if (ctx->sha256_enabled) {
    sha256_update(sha256, buf, len);
   }
 
@@ -850,7 +849,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return res;
   }
 
-  if (na4_sha256_enabled) {
+  if (ctx->sha256_enabled) {
     sha256_update(sha256, frame_out, bytes_out);
   }
   if (ctx->aes256_enabled) {
@@ -1111,7 +1110,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   uint8_t moshio[1];
 
   if (!ctx->aes256_enabled) {
-    if (na4_sha256_enabled) {
+    if (ctx->sha256_enabled) {
       fprintf(stderr, "error: encrypted stream requires -e\n");
     } else {
       fprintf(stderr,
@@ -1458,7 +1457,7 @@ int main(int argc, char **argv)
       } else if (strcmp(argv[i], "-s") == 0) {
         if ((argc >= (i + 2))) {
           if (sscanf(argv[i + 1], "%u", &secret_bytes) == 1) {
-            na4_sha256_enabled = 1;
+            ctx->sha256_enabled = 1;
             i += 2;
           }
         }
@@ -1508,7 +1507,7 @@ int main(int argc, char **argv)
     }
   }
 
-  if (ctx->aes256_enabled && !na4_sha256_enabled) { 
+  if (ctx->aes256_enabled && !ctx->sha256_enabled) { 
     fprintf(stderr,
             "error: unable to use crypto without a secret (-s / -e)\n");
     return 1;
