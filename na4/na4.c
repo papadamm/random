@@ -124,7 +124,6 @@ struct na4_context {
   uint8_t sha256_derived_key[32];
   int sha256_decoded_signature_bytes;
   uint8_t sha256_decoded_signature[32];
-
 };
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
@@ -1491,18 +1490,15 @@ int main(int argc, char **argv)
 
     if (ctx->aes256_enabled) {
       if (decode_enabled) {
-        key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
-                                       secret_bytes, process_secret,
-                                       finish_secret_decrypt);
+        key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
+                                       process_secret, finish_secret_decrypt);
       } else {
-        key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
-                                       secret_bytes, process_secret,
-                                       finish_secret_encrypt);
+        key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
+                                       process_secret, finish_secret_encrypt);
       }
     } else {
-      key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
-                                     secret_bytes, process_secret,
-                                     finish_secret_plaintext);
+      key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
+                                      process_secret, finish_secret_plaintext);
     }
 
     if (key_bytes != secret_bytes) {
@@ -1519,12 +1515,10 @@ int main(int argc, char **argv)
   }
 
   if (decode_enabled) {
-    return stdin_fread(&na4_ctx, NULL,
-                       OUTPUT_BUFSIZE, decode_frame,
-                       compare_signature) < 0;
+    return stdin_fread(&na4_ctx, NULL, OUTPUT_BUFSIZE,
+                       decode_frame, compare_signature) < 0;
   } else {
-    return stdin_fread(&na4_ctx, NULL,
-                       INPUT_BUFSIZE, encode_frame,
-                       store_signature) < 0;
+    return stdin_fread(&na4_ctx, NULL, INPUT_BUFSIZE,
+                       encode_frame, store_signature) < 0;
   }
 }
