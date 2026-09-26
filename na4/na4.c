@@ -107,7 +107,17 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 #define PROCESS_BUFSIZE 33 /* 32 bytes input + 4 bits CRC */
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
 
-int na4_aes256_enabled;
+typedef struct {
+  uint32_t state[8];
+  uint64_t count;
+  uint8_t buffer[64];
+} SHA256_CTX;
+
+struct na4_context {
+  SHA256_CTX sha256_ctx;
+  int aes256_enabled;
+};
+
 int na4_sha256_enabled;
 
 int na4_crypto_header_parsed;
@@ -512,12 +522,6 @@ static int decode_frame_custom(uint8_t *dst, int dst_len,
 
 #define SHA256_DIGEST_SIZE 32
 
-typedef struct {
-  uint32_t state[8];
-  uint64_t count;
-  uint8_t buffer[64];
-} SHA256_CTX;
-
 #define CH(x, y, z)  (((x) & (y)) ^ (~(x) & (z)))
 #define MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
 #define ROTR(x, n)   (((x) >> (n)) | ((x) << (32 - (n))))
@@ -627,10 +631,6 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-struct na4_context {
-  SHA256_CTX sha256_ctx;
-};
-
 int sha256_derived_key_bytes = 0;
 uint8_t sha256_derived_key[32];
 
@@ -676,7 +676,7 @@ static int store_signature(void *handle, int total_bytes)
     return 0;
   }
 
-  if ((total_bytes == 0) && na4_sha256_enabled && !na4_aes256_enabled) {
+  if ((total_bytes == 0) && na4_sha256_enabled && !ctx->aes256_enabled) {
     fprintf(stderr, "warning: cannot safely sign 0-byte stream "
             "without -e (salt); omitting signature\n");
     return 0;
@@ -770,7 +770,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     n = nr_moshio_bytes + nr_data_bytes;
 
-    if (na4_aes256_enabled) {
+    if (ctx->aes256_enabled) {
       aes_ctr_process_frame(&moshio_frame[0], n,
 			    &na4_ctr_state, &na4_aes256_ctx);
     }
@@ -789,7 +789,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
   if (len == 0)
     return 0;
 
-  if (na4_aes256_enabled) {
+  if (ctx->aes256_enabled) {
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
   }
 
@@ -841,7 +841,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return res;
   }
 
-  if (na4_aes256_enabled && !na4_crypto_header_parsed) {
+  if (ctx->aes256_enabled && !na4_crypto_header_parsed) {
     fprintf(stderr, "error: stream is not encrypted, but -e was specified\n");
     return  -1;
   }
@@ -853,7 +853,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   if (na4_sha256_enabled) {
     sha256_update(sha256, frame_out, bytes_out);
   }
-  if (na4_aes256_enabled) {
+  if (ctx->aes256_enabled) {
     aes_ctr_process_frame(frame_out, bytes_out,
                           &na4_ctr_state, &na4_aes256_ctx);
   }
@@ -1110,7 +1110,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   uint8_t computed_token[8];
   uint8_t moshio[1];
 
-  if (!na4_aes256_enabled) {
+  if (!ctx->aes256_enabled) {
     if (na4_sha256_enabled) {
       fprintf(stderr, "error: encrypted stream requires -e\n");
     } else {
@@ -1444,6 +1444,7 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
 int main(int argc, char **argv)
 {
   struct na4_context na4_ctx = {};
+  struct na4_context *ctx = &na4_ctx;
   int decode_enabled = 0;
   int secret_bytes = -1;
   int key_bytes;
@@ -1471,7 +1472,7 @@ int main(int argc, char **argv)
         i++;
         continue;
       } else if (strcmp(argv[i], "-e") == 0) {
-        na4_aes256_enabled = 1;
+        ctx->aes256_enabled = 1;
         i++;
         continue;
       }
@@ -1484,7 +1485,7 @@ int main(int argc, char **argv)
       fprintf(stderr, "warning: using potentially unsafe 0-byte secret\n");
     }
 
-    if (na4_aes256_enabled) {
+    if (ctx->aes256_enabled) {
       if (decode_enabled) {
         key_bytes = stdin_fread_secret(&na4_ctx, init_secret,
                                        secret_bytes, process_secret,
@@ -1507,7 +1508,7 @@ int main(int argc, char **argv)
     }
   }
 
-  if (na4_aes256_enabled && !na4_sha256_enabled) { 
+  if (ctx->aes256_enabled && !na4_sha256_enabled) { 
     fprintf(stderr,
             "error: unable to use crypto without a secret (-s / -e)\n");
     return 1;
