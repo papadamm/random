@@ -83,10 +83,8 @@
 /* char in -> [tail] decoding -> reverse -> BigInt(mul77_div256) -> bin out  */
 /*                                                                           */
 /* TODO:                                                                     */
-/* - Clean up the decoder and the encoder (especially the function names)    */
 /* - Clean up header size calculation and avoid duplicating logic            */
-/* - Tail frame detection logic needs to be straightened out                 */
-/* - stdin_fread() is not exactly easy to read. stdin_fread_secret() is.     */
+/* - read_data() is not exactly easy to read. read_secret() is.              */
 /* - Switch from suffix MAC to HMAC-SHA256                                   */
 /* - Add test cases for the various command line options                     */
 /* - Add help text                                                           */
