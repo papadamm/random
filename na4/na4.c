@@ -135,7 +135,6 @@ struct na4_context {
   int sha256_decoded_signature_bytes;
   uint8_t sha256_decoded_signature[32];
   int (*salt)(struct na4_context *, uint8_t *, int);
-  char *(*strchr)(struct na4_context *, const char *, int);
   int (*read)(struct na4_context *, uint8_t *, int);
   int (*write)(struct na4_context *, uint8_t *, int);
   void (*flush)(struct na4_context *);
@@ -210,13 +209,26 @@ static char encode_char_top_64(uint8_t offs)
   return nananana[64 + offs];
 }
 
+/* simple strchr() version operating on one-byte-per char ASCII */
+static char *__strchr(const char *s, int c)
+{
+  int i;
+
+  for (i = 0; s[i] != '\0'; i++) {
+    if (s[i] == c)
+      return (void *)&s[i];
+  }
+
+  return NULL;
+}
+
 /* check that the ASCII character is in the bottom 64 range */
-static int check_bottom_64(struct na4_context *ctx, char ch)
+static int check_bottom_64(char ch)
 {
   const char *str = &nananana[0];
   char *found;
 
-  found = ctx->strchr(ctx, str, ch);
+  found = __strchr(str, ch);
   if (!found) {
     return -1;
   }
@@ -367,7 +379,7 @@ static int encode_frame_custom(void *handle,
     output_tail(ctx, custom_tail, encode_char(len - 3), rev, frame_size[len]);
   } else if (len == 32) { /* encode full frame */
     /* the first char must be less than 64 when encoding full frames */
-    s = check_bottom_64(ctx, encode_char(rev[0]));
+    s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
       ERROR(ctx, err_encode_1st_char);
       return -1;
@@ -410,7 +422,7 @@ static int decode_char(int ch)
   const char *str = &nananana[0];
   char *found;
 
-  found = strchr(str, ch);
+  found = __strchr(str, ch);
   if (found) {
     return found - str;
   }
@@ -512,7 +524,7 @@ static int decode_frame_custom(void *handle,
     chars[i] = n;
   }
 
-  s = check_bottom_64(ctx, encode_char(chars[0]));
+  s = check_bottom_64(encode_char(chars[0]));
   if (s < 0) {
     ERROR(ctx, err_decode_1st_char);
     return -1;
@@ -1580,11 +1592,6 @@ static int na4_salt(struct na4_context *ctx, uint8_t *buf, int len)
   return 0;
 }
 
-static char *na4_strchr(struct na4_context *ctx, const char *s, int c)
-{
-  return strchr(s, c);
-}
-
 static int na4_read(struct na4_context *ctx, uint8_t *buf, int bytes)
 {
   return fread(buf, 1, bytes, stdin);
@@ -1623,7 +1630,6 @@ int main(int argc, char **argv)
   na4_ctx.write = na4_write;
   na4_ctx.flush = na4_flush;
   na4_ctx.salt = na4_salt;
-  na4_ctx.strchr = na4_strchr;
   
   while(1) {
     if (argc >= (i + 1)) {
