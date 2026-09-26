@@ -339,10 +339,10 @@ static int encode_frame_custom(void *handle,
 
   reverse_data(rev, rem, OUTPUT_BUFSIZE, frame_size[len] - hdr_size);
 
-  if (custom_tail) {
-    output_tail(custom_tail, encode_char(len - 3), rev, frame_size[len]);
-  } else if (len == 32) {
   /* any frame with less than 32 bytes input data needs tail encoding */
+  if (custom_tail) { /* custom tails have to be less than 32 bytes */
+    output_tail(custom_tail, encode_char(len - 3), rev, frame_size[len]);
+  } else if (len == 32) { /* encode full frame */
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
