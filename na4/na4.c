@@ -461,6 +461,8 @@ static int decode_frame_custom(void *handle,
                                uint8_t *dst, int dst_len,
                                uint8_t *buf, int len,
                                int *dst_bytes,
+                               int (*decode_tail_custom)
+                                   (char, char, int *, int *),
                                int (*handle_custom_tail)
                                    (void *, int, uint8_t *, int))
 {
@@ -494,8 +496,9 @@ static int decode_frame_custom(void *handle,
   } else {
     ret = try_to_decode_top_tail(buf[0], buf[1], &offs, &expected_size);
     if (ret == 0) {
-      ret = try_to_decode_top_tail_custom(buf[0], buf[1],
-                                          &offs, &expected_size);
+      if (decode_tail_custom) {
+	ret = decode_tail_custom(buf[0], buf[1], &offs, &expected_size);
+      }
       if (ret == 1) {
 	is_custom_tail = buf[0]; /* yes, it matched the custom tail decoder */
       }
@@ -866,7 +869,8 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return 0;
 
   res = decode_frame_custom(handle, frame_out, INPUT_BUFSIZE, buf, len,
-			    &bytes_out, decode_custom_tail);
+                            &bytes_out, try_to_decode_top_tail_custom,
+                            decode_custom_tail);
   if (res < 0) {
     return res;
   }
