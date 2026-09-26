@@ -136,13 +136,13 @@ struct na4_context {
   uint8_t sha256_derived_key[32];
   int sha256_decoded_signature_bytes;
   uint8_t sha256_decoded_signature[32];
-  void (*err)(struct na4_context *, na4_err_t);
-  void (*warn)(struct na4_context *, na4_warn_t);
+  int (*salt)(struct na4_context *, uint8_t *, int);
+  char *(*strchr)(struct na4_context *, const char *, int);
   int (*read)(struct na4_context *, uint8_t *, int);
   int (*write)(struct na4_context *, uint8_t *, int);
   void (*flush)(struct na4_context *);
-  int (*salt)(struct na4_context *, uint8_t *, int);
-  char *(*strchr)(struct na4_context *, const char *, int);
+  void (*err)(struct na4_context *, na4_err_t);
+  void (*warn)(struct na4_context *, na4_warn_t);
 };
 
 #define ERROR(c, m) c->err(c, m)
@@ -1568,31 +1568,6 @@ char *warn_msg[] = {
   ERR_MSG(warn_unsafe_secret_zero, "using potentially unsafe 0-byte secret"),
 };
 	 
-static void na4_err(struct na4_context *ctx, na4_err_t err)
-{
-  fprintf(stderr, "error: %s\n", err_msg[err]);
-}
-
-static void na4_warn(struct na4_context *ctx, na4_warn_t warn)
-{
-  fprintf(stderr, "warning: %s\n", warn_msg[warn]);
-}
-
-static int na4_read(struct na4_context *ctx, uint8_t *buf, int bytes)
-{
-  return fread(buf, 1, bytes, stdin);
-}
-
-static int na4_write(struct na4_context *ctx, uint8_t *buf, int bytes)
-{
-  return fwrite(buf, bytes, 1, stdout);
-}
-
-static void na4_flush(struct na4_context *ctx)
-{
-  fflush(stdout);
-}
-
 static int na4_salt(struct na4_context *ctx, uint8_t *buf, int len)
 {
   FILE *f;
@@ -1610,6 +1585,31 @@ static int na4_salt(struct na4_context *ctx, uint8_t *buf, int len)
 static char *na4_strchr(struct na4_context *ctx, const char *s, int c)
 {
   return strchr(s, c);
+}
+
+static int na4_read(struct na4_context *ctx, uint8_t *buf, int bytes)
+{
+  return fread(buf, 1, bytes, stdin);
+}
+
+static int na4_write(struct na4_context *ctx, uint8_t *buf, int bytes)
+{
+  return fwrite(buf, bytes, 1, stdout);
+}
+
+static void na4_flush(struct na4_context *ctx)
+{
+  fflush(stdout);
+}
+
+static void na4_err(struct na4_context *ctx, na4_err_t err)
+{
+  fprintf(stderr, "error: %s\n", err_msg[err]);
+}
+
+static void na4_warn(struct na4_context *ctx, na4_warn_t warn)
+{
+  fprintf(stderr, "warning: %s\n", warn_msg[warn]);
 }
 
 int main(int argc, char **argv)
