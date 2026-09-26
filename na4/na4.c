@@ -106,6 +106,18 @@ char nananana[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 #define PROCESS_BUFSIZE 33 /* 32 bytes input + 4 bits CRC */
 #define OUTPUT_BUFSIZE 42 /* 42 character output per frame maximum */
 
+typedef enum { err_encode_1st_char, err_tail_range,
+               err_tail_signature_range, err_tail_crypto_range,
+               err_decode_ascii, err_decode_1st_char,
+               err_unsupported_tail, err_crc_mismatch,
+               err_empty_stream, err_signature_mismatch,
+               err_stream_not_encrypted, err_buffer_failure,
+               err_encrypted_stream, err_encrypted_stream_no_secret,
+               err_secret_mismatch, err_unable_to_read_secret,
+               err_crypto_no_secret } na4_err_t;
+
+typedef enum { warn_unsafe_sign_zero, warn_unsafe_secret_zero } na4_warn_t;
+
 typedef struct {
   uint32_t state[8];
   uint64_t count;
@@ -124,22 +136,12 @@ struct na4_context {
   uint8_t sha256_derived_key[32];
   int sha256_decoded_signature_bytes;
   uint8_t sha256_decoded_signature[32];
+  void (*err)(struct na4_context *, na4_err_t);
+  void (*warn)(struct na4_context *, na4_warn_t);
 };
 
-typedef enum { err_encode_1st_char, err_tail_range,
-               err_tail_signature_range, err_tail_crypto_range,
-               err_decode_ascii, err_decode_1st_char,
-               err_unsupported_tail, err_crc_mismatch,
-               err_empty_stream, err_signature_mismatch,
-               err_stream_not_encrypted, err_buffer_failure,
-               err_encrypted_stream, err_encrypted_stream_no_secret,
-               err_secret_mismatch, err_unable_to_read_secret,
-               err_crypto_no_secret } na4_err_t;
-
-typedef enum { warn_unsafe_sign_zero, warn_unsafe_secret_zero } na4_warn_t;
-
-static void err(struct na4_context *ctx, na4_err_t err);
-static void warn(struct na4_context *ctx, na4_warn_t warn);
+#define ERROR(c, m) c->err(c, m)
+#define WARNING(c, m) c->warn(c, m)
 
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
@@ -362,7 +364,7 @@ static int encode_frame_custom(void *handle,
     /* the first char must be less than 64 when encoding full frames */
     s = check_bottom_64(encode_char(rev[0]));
     if (s != 1) {
-      err(ctx, err_encode_1st_char);
+      ERROR(ctx, err_encode_1st_char);
       return -1;
     }
     output_tail(0, 0, rev, 42);
@@ -436,7 +438,7 @@ static int try_to_decode_top_tail(struct na4_context *ctx,
 
   if (tail1 == encode_char_top_64(9)) { /* N bytes of data */
     if (decode_char(tail2) > 27) {
-      err(ctx, err_tail_range);
+      ERROR(ctx, err_tail_range);
       return -1;
     }
     *offs = 2;
@@ -454,7 +456,7 @@ static int try_to_decode_top_tail_custom(struct na4_context *ctx,
 {
   if ((tail1 == encode_char_top_64(8)) || (tail1 == encode_char_top_64(7))) {
     if (decode_char(tail2) != (16 - 3)) {
-      err(ctx, err_tail_signature_range);
+      ERROR(ctx, err_tail_signature_range);
       return -1;
     }
     *offs = 2;
@@ -463,7 +465,7 @@ static int try_to_decode_top_tail_custom(struct na4_context *ctx,
   }
   if (tail1 == encode_char_top_64(6)) {
     if (decode_char(tail2) != (20 - 3)) {
-      err(ctx, err_tail_crypto_range);
+      ERROR(ctx, err_tail_crypto_range);
       return -1;
     }
     *offs = 2;
@@ -499,7 +501,7 @@ static int decode_frame_custom(void *handle,
   for (i = 0; i < len; i++) {
     n = decode_char(buf[i]);
     if (n < 0) {
-      err(ctx, err_decode_ascii);
+      ERROR(ctx, err_decode_ascii);
       return -1;
     }
     chars[i] = n;
@@ -507,7 +509,7 @@ static int decode_frame_custom(void *handle,
 
   s = check_bottom_64(encode_char(chars[0]));
   if (s < 0) {
-    err(ctx, err_decode_1st_char);
+    ERROR(ctx, err_decode_1st_char);
     return -1;
   } else if (s == 1) { /* full frame, expect 42 ASCII characters */
     offs = 0;
@@ -526,7 +528,7 @@ static int decode_frame_custom(void *handle,
   }
 
   if (ret == -1) {
-    err(ctx, err_unsupported_tail);
+    ERROR(ctx, err_unsupported_tail);
     return -1;
   }
 
@@ -551,7 +553,7 @@ static int decode_frame_custom(void *handle,
 
     r = crc4_itu(&num[1], expected_size - 1);
     if (r != (num[0] >> 4)) {
-      err(ctx, err_crc_mismatch);
+      ERROR(ctx, err_crc_mismatch);
       return -1;
     }
   }
@@ -729,7 +731,7 @@ static int store_signature(void *handle, int total_bytes)
   }
 
   if ((total_bytes == 0) && ctx->sha256_enabled && !ctx->aes256_enabled) {
-    warn(ctx, warn_unsafe_sign_zero);
+    WARNING(ctx, warn_unsafe_sign_zero);
     return 0;
   }
 
@@ -770,12 +772,12 @@ static int compare_signature(void *handle, int total_bytes)
   }
 
   if (ctx->sha256_decoded_signature_bytes != 32) {
-    err(ctx, err_empty_stream);
+    ERROR(ctx, err_empty_stream);
     return -1;
   }
 
   if (memcmp(sha256_res, ctx->sha256_decoded_signature, 32) != 0) {
-    err(ctx, err_signature_mismatch);
+    ERROR(ctx, err_signature_mismatch);
     return -1;
   }
   return 0; /* signature correct */
@@ -895,7 +897,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->aes256_enabled && !ctx->crypto_header_parsed) {
-    err(ctx, err_stream_not_encrypted);
+    ERROR(ctx, err_stream_not_encrypted);
     return  -1;
   }
   
@@ -943,13 +945,14 @@ static int stdin_fread(void *handle,
 		       int (*f)(void *, uint8_t *, int),
 		       int (*e)(void *, int))
 {
+  struct na4_context *ctx = handle;
   uint8_t buf[MAX_BUFSIZE];
   int total_bytes = 0;
   int cnt;
   int n, m;
 
   if (bufsize > MAX_BUFSIZE) {
-    err(handle, err_buffer_failure);
+    ERROR(ctx, err_buffer_failure);
     return -1;
   }
 
@@ -1168,9 +1171,9 @@ static int crypto_init_decoder(struct na4_context *ctx,
 
   if (!ctx->aes256_enabled) {
     if (ctx->sha256_enabled) {
-      err(ctx, err_encrypted_stream);
+      ERROR(ctx, err_encrypted_stream);
     } else {
-      err(ctx, err_encrypted_stream_no_secret);
+      ERROR(ctx, err_encrypted_stream_no_secret);
     }
     return -1;
   }
@@ -1192,7 +1195,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   if (diff != 0) {
     /* Wrong password! Clean up keys and fail immediately */
     memset(keys, 0, sizeof(na4_keys_t));
-    err(ctx, err_secret_mismatch);
+    ERROR(ctx, err_secret_mismatch);
     return -1; 
   }
   
@@ -1525,12 +1528,12 @@ char *warn_msg[] = {
   ERR_MSG(warn_unsafe_secret_zero, "using potentially unsafe 0-byte secret"),
 };
 	 
-static void err(struct na4_context *ctx, na4_err_t err)
+static void na4_err(struct na4_context *ctx, na4_err_t err)
 {
   fprintf(stderr, "error: %s\n", err_msg[err]);
 }
 
-static void warn(struct na4_context *ctx, na4_warn_t warn)
+static void na4_warn(struct na4_context *ctx, na4_warn_t warn)
 {
   fprintf(stderr, "warning: %s\n", warn_msg[warn]);
 }
@@ -1544,6 +1547,9 @@ int main(int argc, char **argv)
   int key_bytes;
   int i = 1;
 
+  na4_ctx.err = na4_err;
+  na4_ctx.warn = na4_warn;
+  
   while(1) {
     if (argc >= (i + 1)) {
       if (strcmp(argv[i], "--help") == 0) {
@@ -1576,7 +1582,7 @@ int main(int argc, char **argv)
 
   if (secret_bytes >= 0) {
     if (secret_bytes == 0) {
-      warn(ctx, warn_unsafe_secret_zero);
+      WARNING(ctx, warn_unsafe_secret_zero);
     }
 
     if (ctx->aes256_enabled) {
@@ -1593,13 +1599,13 @@ int main(int argc, char **argv)
     }
 
     if (key_bytes != secret_bytes) {
-      err(ctx, err_unable_to_read_secret);
+      ERROR(ctx, err_unable_to_read_secret);
       return 1;
     }
   }
 
   if (ctx->aes256_enabled && !ctx->sha256_enabled) {
-    err(ctx, err_crypto_no_secret);
+    ERROR(ctx, err_crypto_no_secret);
     return 1;
   }
 
