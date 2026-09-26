@@ -943,11 +943,11 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
 #define MAX_BUFSIZE MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)
 
-static int stdin_fread(void *handle,
-		       int (*c)(void *),
-		       int bufsize,
-		       int (*f)(void *, uint8_t *, int),
-		       int (*e)(void *, int))
+static int read_data(void *handle,
+	             int (*c)(void *),
+                     int bufsize,
+                     int (*f)(void *, uint8_t *, int),
+                     int (*e)(void *, int))
 {
   struct na4_context *ctx = handle;
   uint8_t buf[MAX_BUFSIZE];
@@ -1005,11 +1005,11 @@ static int stdin_fread(void *handle,
   return total_bytes;
 }
 
-static int stdin_fread_secret(void *handle,
-                              int (*c)(void *),
-                              int xfer_size,
-                              int (*f)(void *, uint8_t *, int),
-                              int (*e)(void *, int))
+static int read_secret(void *handle,
+                       int (*c)(void *),
+                       int xfer_size,
+                       int (*f)(void *, uint8_t *, int),
+                       int (*e)(void *, int))
 {
   struct na4_context *ctx = handle;
   int total_bytes = 0;
@@ -1612,15 +1612,15 @@ int main(int argc, char **argv)
 
     if (ctx->aes256_enabled) {
       if (decode_enabled) {
-        key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
-                                       process_secret, finish_secret_decrypt);
+        key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
+                                process_secret, finish_secret_decrypt);
       } else {
-        key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
-                                       process_secret, finish_secret_encrypt);
+        key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
+                                process_secret, finish_secret_encrypt);
       }
     } else {
-      key_bytes = stdin_fread_secret(&na4_ctx, init_secret, secret_bytes,
-                                      process_secret, finish_secret_plaintext);
+      key_bytes = read_secret(&na4_ctx, init_secret, secret_bytes,
+                              process_secret, finish_secret_plaintext);
     }
 
     if (key_bytes != secret_bytes) {
@@ -1635,10 +1635,10 @@ int main(int argc, char **argv)
   }
 
   if (decode_enabled) {
-    return stdin_fread(&na4_ctx, NULL, OUTPUT_BUFSIZE,
-                       decode_frame, compare_signature) < 0;
+    return read_data(&na4_ctx, NULL, OUTPUT_BUFSIZE,
+                     decode_frame, compare_signature) < 0;
   } else {
-    return stdin_fread(&na4_ctx, NULL, INPUT_BUFSIZE,
-                       encode_frame, store_signature) < 0;
+    return read_data(&na4_ctx, NULL, INPUT_BUFSIZE,
+                     encode_frame, store_signature) < 0;
   }
 }
