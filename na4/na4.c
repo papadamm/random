@@ -131,8 +131,8 @@ typedef struct {
 struct na4_context {
   SHA256_CTX secret_sha256_ctx;
   HMAC_CTX hmac_ctx;
-  int aes256_enabled;
   int signature_enabled;
+  int encryption_enabled;
   int crypto_header_parsed;
   int crypto_moshio_required;
   uint8_t crypto_moshio_data;
@@ -802,7 +802,8 @@ static int store_signature(void *handle, int total_bytes)
     return 0;
   }
 
-  if ((total_bytes == 0) && ctx->signature_enabled && !ctx->aes256_enabled) {
+  if ((total_bytes == 0)
+     && ctx->signature_enabled && !ctx->encryption_enabled) {
     WARNING(ctx, warn_unsafe_sign_zero);
     return 0;
   }
@@ -878,7 +879,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     n = nr_moshio_bytes + nr_data_bytes;
 
-    if (ctx->aes256_enabled) {
+    if (ctx->encryption_enabled) {
       aes_ctr_process_frame(&moshio_frame[0], n,
 			    &na4_ctr_state, &na4_aes256_ctx);
     }
@@ -897,7 +898,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
   if (len == 0)
     return 0;
 
-  if (ctx->aes256_enabled) {
+  if (ctx->encryption_enabled) {
     aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
   }
 
@@ -950,7 +951,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return res;
   }
 
-  if (ctx->aes256_enabled && !ctx->crypto_header_parsed) {
+  if (ctx->encryption_enabled && !ctx->crypto_header_parsed) {
     ERROR(ctx, err_stream_not_encrypted);
     return  -1;
   }
@@ -962,7 +963,8 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   if (ctx->signature_enabled) {
     hmac_update(&ctx->hmac_ctx, frame_out, bytes_out);
   }
-  if (ctx->aes256_enabled) {
+
+  if (ctx->encryption_enabled) {
     aes_ctr_process_frame(frame_out, bytes_out,
                           &na4_ctr_state, &na4_aes256_ctx);
   }
@@ -1209,7 +1211,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   uint8_t master_prk[32];
   uint8_t computed_token[8];
 
-  if (!ctx->aes256_enabled) {
+  if (!ctx->encryption_enabled) {
     if (ctx->signature_enabled) {
       ERROR(ctx, err_encrypted_stream);
     } else {
@@ -1535,7 +1537,7 @@ int na4_setup_secret(struct na4_context *ctx,
       WARNING(ctx, warn_unsafe_secret_zero);
     }
 
-    if (ctx->aes256_enabled) {
+    if (ctx->encryption_enabled) {
       if (decode_enabled) {
         key_bytes = read_secret(ctx, init_secret, secret_bytes,
                                 process_secret, finish_secret_decrypt);
@@ -1554,7 +1556,7 @@ int na4_setup_secret(struct na4_context *ctx,
     }
   }
 
-  if (ctx->aes256_enabled && !ctx->signature_enabled) {
+  if (ctx->encryption_enabled && !ctx->signature_enabled) {
     ERROR(ctx, err_crypto_no_secret);
     return 1;
   }
@@ -1677,7 +1679,7 @@ int main(int argc, char **argv)
         i++;
         continue;
       } else if (strcmp(argv[i], "-e") == 0) {
-        na4_ctx.aes256_enabled = 1;
+        na4_ctx.encryption_enabled = 1;
         i++;
         continue;
       }
