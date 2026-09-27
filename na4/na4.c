@@ -123,8 +123,8 @@ typedef struct {
 } SHA256_CTX;
 
 struct na4_context {
+  SHA256_CTX secret_sha256_ctx;
   SHA256_CTX sha256_ctx;
-  SHA256_CTX saved_sha256_ctx;
   int aes256_enabled;
   int sha256_enabled;
   int crypto_header_parsed;
@@ -803,13 +803,12 @@ static int compare_signature(void *handle, int total_bytes)
 static int finish_secret_plaintext(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
-  sha256_final(ctx->sha256_derived_key, sha256);
+  sha256_final(ctx->sha256_derived_key, &ctx->secret_sha256_ctx);
   ctx->sha256_derived_key_bytes = 32;
 
-  /* initialize once more, this time for actual data processing */
-  sha256_init(sha256);
+  /* initialize sha256 used for actual data processing */
+  sha256_init(&ctx->sha256_ctx);
   return 0;
 }
 
@@ -1068,7 +1067,7 @@ typedef struct {
  * Helper: PBKDF2-like iterated hashing using your SHA256 primitives.
  * Performs KDF_ITERATIONS rounds of SHA-256 over (salt || secret).
  */
-static void kdf_extract_master_late(SHA256_CTX *base_ctx,
+static void kdf_extract_master_late(SHA256_CTX *secret_sha256_ctx,
                                     uint8_t master_prk[32],
                                     const uint8_t *salt, size_t salt_len)
 {
@@ -1077,11 +1076,12 @@ static void kdf_extract_master_late(SHA256_CTX *base_ctx,
 
   /* Round 1A: H(Secret) (done elsewhere before this) */
   /* Round 1B: H(Salt) */
-  memcpy(&ctx, base_ctx, sizeof(SHA256_CTX));
+  memcpy(&ctx, secret_sha256_ctx, sizeof(SHA256_CTX));
   sha256_update(&ctx, salt, salt_len);
   sha256_final(master_prk, &ctx);
 
-  memset(base_ctx, 0, sizeof(SHA256_CTX));
+  /* now when master_prk exists, wipe the sha256 hash of the secret */
+  memset(secret_sha256_ctx, 0, sizeof(SHA256_CTX));
 
   /* --- Subsequent Rounds (2 .. KDF_ITERATIONS) --- */
   /* Pure iterated hash stretching: H(H(H(...))) */
@@ -1152,7 +1152,7 @@ static int crypto_init_encoder_late(struct na4_context *ctx,
 
   /* 1. Generate 12 bytes of fresh random salt from CSPRNG (done) */
   /* 2. Compute iterated master key */
-  kdf_extract_master_late(&ctx->sha256_ctx, master_prk, hdr->salt, 12);
+  kdf_extract_master_late(&ctx->secret_sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 3. Expand into several keys and check tokens */
   kdf_expand_keys(ctx, keys, hdr->check_token, master_prk);
@@ -1179,7 +1179,7 @@ static int crypto_init_decoder(struct na4_context *ctx,
   }
   
   /* 1. Recompute the master key using the salt read from the file */
-  kdf_extract_master_late(&ctx->saved_sha256_ctx, master_prk, hdr->salt, 12);
+  kdf_extract_master_late(&ctx->secret_sha256_ctx, master_prk, hdr->salt, 12);
 
   /* 2. Expand keys and compute what the check token SHOULD be */
   kdf_expand_keys(ctx, keys, computed_token, master_prk);
@@ -1209,19 +1209,17 @@ static int crypto_init_decoder(struct na4_context *ctx,
 static int init_secret(void *handle)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
   /* initialize first time for processing the secret */
-  sha256_init(sha256);
+  sha256_init(&ctx->secret_sha256_ctx);
   return 0;
 }
 
 static int process_secret(void *handle, uint8_t *buf, int len)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
-  sha256_update(sha256, buf, len);
+  sha256_update(&ctx->secret_sha256_ctx, buf, len);
   memset(buf, 0, len); /* zero out the secret now when done */
   return len;
 }
@@ -1229,7 +1227,6 @@ static int process_secret(void *handle, uint8_t *buf, int len)
 static int finish_secret_encrypt(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   na4_keys_t crypto_keys = {};
   na4_crypto_hdr_t crypto_hdr = {};
 
@@ -1239,8 +1236,8 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
 
   crypto_init_encoder_late(ctx, &crypto_hdr, &crypto_keys);
 
-  /* initialize once more, this time for actual data processing */
-  sha256_init(sha256);
+  /* initialize sha256 used for actual data processing */
+  sha256_init(&ctx->sha256_ctx);
 
   /* save key for use later when data processing is finished */
   memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
@@ -1260,13 +1257,9 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
 static int finish_secret_decrypt(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
 
-  /* save key context for use later when intializing the decoder */
-  memcpy(&ctx->saved_sha256_ctx, sha256, sizeof(SHA256_CTX));
-
-  /* initialize once more, this time for actual data processing */
-  sha256_init(sha256);
+  /* initialize sha256 used for actual data processing */
+  sha256_init(&ctx->sha256_ctx);
   return 0;
 }
 
