@@ -34,10 +34,10 @@ Secret Delivery (Idiom):
   the beginning of stdin using 'echo' and specify its length via -s <len>:
 
   Encode & Encrypt:
-    ( echo -n "passphrase"; cat payload.bin - ) | ./na4 -e -s 10 > secret.na4
+    echo -n "passphrase" | cat - payload.bin | %s -e -s 10 > secret.na4
 
   Decode & Decrypt:
-    ( echo -n "passphrase"; cat secret.na4 - ) | ./na4 -d -e -s 10 > out.bin
+    echo -n "passphrase" | cat - secret.na4 | %s -d -e -s 10 > out.bin
 
 Security & Framing Notes:
   * In encrypted mode (-e -s), a random salt and check token (Frame 0)
