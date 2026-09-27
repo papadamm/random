@@ -136,8 +136,6 @@ struct na4_context {
   int crypto_header_parsed;
   int crypto_moshio_required;
   uint8_t crypto_moshio_data;
-  int sha256_derived_key_bytes;
-  uint8_t sha256_derived_key[32];
   int sha256_decoded_signature_bytes;
   uint8_t sha256_decoded_signature[32];
   int (*salt)(struct na4_context *, uint8_t *, int);
@@ -847,13 +845,12 @@ static int compare_signature(void *handle, int total_bytes)
 static int finish_secret_plaintext(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
+  uint8_t sha256_derived_key[32] = {};
 
-  sha256_final(ctx->sha256_derived_key, &ctx->secret_sha256_ctx);
-  ctx->sha256_derived_key_bytes = 32;
+  sha256_final(sha256_derived_key, &ctx->secret_sha256_ctx);
 
   /* initialize HMAC used for actual data processing */
-  hmac_init(&ctx->hmac_ctx, ctx->sha256_derived_key,
-            ctx->sha256_derived_key_bytes);
+  hmac_init(&ctx->hmac_ctx, sha256_derived_key, sizeof(sha256_derived_key));
   return 0;
 }
 
@@ -1282,13 +1279,7 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   /* initialize HMAC used for actual data processing */
   hmac_init(&ctx->hmac_ctx, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
 
-#if 0
-  /* save key for use later when data processing is finished */
-  memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
-         sizeof(crypto_keys.mac_key));
-  ctx->sha256_derived_key_bytes = 32;
-#endif
-
+  /* initialize key used for encryption */
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
   /* next step is to output a bit of encrypted salt */
@@ -1322,12 +1313,8 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
       /* initialize HMAC used for actual data processing */
       hmac_init(&ctx->hmac_ctx, crypto_keys.mac_key,
                 sizeof(crypto_keys.mac_key));
-#if 0
-      /* save key for use later when data processing is finished */
-      memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
-             sizeof(crypto_keys.mac_key));
-      ctx->sha256_derived_key_bytes = 32;
-#endif
+
+      /* initialize key used for encryption */
       aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
       ctx->crypto_header_parsed = 1;
     }
