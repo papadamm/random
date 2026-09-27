@@ -85,7 +85,6 @@
 /* TODO:                                                                     */
 /* - Clean up header size calculation and avoid duplicating logic            */
 /* - read_data() is not exactly easy to read. read_secret() is.              */
-/* - Switch from suffix MAC to HMAC-SHA256                                   */
 /* - Add test cases for the various command line options                     */
 /* - Add help text                                                           */
 
