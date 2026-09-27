@@ -86,7 +86,6 @@
 /* - Clean up header size calculation and avoid duplicating logic            */
 /* - read_data() is not exactly easy to read. read_secret() is.              */
 /* - Add test cases for the various command line options                     */
-/* - Add help text                                                           */
 
 #include <stdio.h>
 #include <string.h>
