@@ -715,19 +715,6 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-/* AES encoder implementation (thanks Gemini) */
-
-#define AES256_ROUNDS 14
-#define AES256_EXP_KEY_SIZE (16 * (AES256_ROUNDS + 1)) /* 240 bytes */
-
-typedef struct {
-  uint8_t round_keys[AES256_EXP_KEY_SIZE];
-} aes256_ctx_t;
-
-aes256_ctx_t na4_aes256_ctx;
-
-static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32]);
-
 /* HMAC implementation (RFC2104 but with SHA256 instead of MD5) */
 
 static void hmac_init(HMAC_CTX *ctx, uint8_t *secret, int len)
@@ -780,6 +767,19 @@ static void hmac_final(uint8_t digest[SHA256_DIGEST_SIZE], HMAC_CTX *ctx)
   sha256_update(&ctx->outer_ctx, inner_hash, sizeof(inner_hash));
   sha256_final(digest, &ctx->outer_ctx);
 }
+
+/* AES encoder implementation (thanks Gemini) */
+
+#define AES256_ROUNDS 14
+#define AES256_EXP_KEY_SIZE (16 * (AES256_ROUNDS + 1)) /* 240 bytes */
+
+typedef struct {
+  uint8_t round_keys[AES256_EXP_KEY_SIZE];
+} aes256_ctx_t;
+
+aes256_ctx_t na4_aes256_ctx;
+
+static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32]);
 
 /* AES-CTR implementation (thanks Gemini) */
 
