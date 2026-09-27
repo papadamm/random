@@ -136,8 +136,8 @@ struct na4_context {
   int crypto_header_parsed;
   int crypto_moshio_required;
   uint8_t crypto_moshio_data;
-  int sha256_decoded_signature_bytes;
-  uint8_t sha256_decoded_signature[32];
+  int decoded_signature_bytes;
+  uint8_t decoded_signature[32];
   int (*salt)(struct na4_context *, uint8_t *, int);
   int (*read)(struct na4_context *, uint8_t *, int);
   int (*write)(struct na4_context *, uint8_t *, int);
@@ -830,12 +830,12 @@ static int compare_signature(void *handle, int total_bytes)
   /* calculate the HMAC result */
   hmac_final(signature, &ctx->hmac_ctx);
 
-  if (ctx->sha256_decoded_signature_bytes != 32) {
+  if (ctx->decoded_signature_bytes != 32) {
     ERROR(ctx, err_empty_stream);
     return -1;
   }
 
-  if (memcmp(signature, ctx->sha256_decoded_signature, 32) != 0) {
+  if (memcmp(signature, ctx->decoded_signature, 32) != 0) {
     ERROR(ctx, err_signature_mismatch);
     return -1;
   }
@@ -916,15 +916,15 @@ static int decode_custom_tail(void *handle, int tail_type,
   struct na4_context *ctx = handle;
 
   if (tail_type == encode_char_top_64(8)) {
-    if (ctx->sha256_decoded_signature_bytes == 0) {
-      memcpy(&ctx->sha256_decoded_signature[0], buf, 16);
-      ctx->sha256_decoded_signature_bytes = 16;
+    if (ctx->decoded_signature_bytes == 0) {
+      memcpy(&ctx->decoded_signature[0], buf, 16);
+      ctx->decoded_signature_bytes = 16;
     }
   }
   if (tail_type == encode_char_top_64(7)) {
-    if (ctx->sha256_decoded_signature_bytes == 16) {
-      memcpy(&ctx->sha256_decoded_signature[16], buf, 16);
-      ctx->sha256_decoded_signature_bytes = 32;
+    if (ctx->decoded_signature_bytes == 16) {
+      memcpy(&ctx->decoded_signature[16], buf, 16);
+      ctx->decoded_signature_bytes = 32;
     }
   }
   if (tail_type == encode_char_top_64(6)) {
