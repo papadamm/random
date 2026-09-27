@@ -116,6 +116,13 @@ typedef enum { err_encode_1st_char, err_tail_range,
 
 typedef enum { warn_unsafe_sign_zero, warn_unsafe_secret_zero } na4_warn_t;
 
+#define AES256_ROUNDS 14
+#define AES256_EXP_KEY_SIZE (16 * (AES256_ROUNDS + 1)) /* 240 bytes */
+
+typedef struct {
+  uint8_t round_keys[AES256_EXP_KEY_SIZE];
+} AES_CTX;
+
 typedef struct {
   uint32_t state[8];
   uint64_t count;
@@ -131,6 +138,7 @@ typedef struct {
 struct na4_context {
   SHA256_CTX secret_sha256_ctx;
   HMAC_CTX hmac_ctx;
+  AES_CTX aes_ctx;
   int signature_enabled;
   int encryption_enabled;
   int crypto_header_parsed;
@@ -767,16 +775,7 @@ static void hmac_final(uint8_t digest[SHA256_DIGEST_SIZE], HMAC_CTX *ctx)
 
 /* AES encoder implementation (thanks Gemini) */
 
-#define AES256_ROUNDS 14
-#define AES256_EXP_KEY_SIZE (16 * (AES256_ROUNDS + 1)) /* 240 bytes */
-
-typedef struct {
-  uint8_t round_keys[AES256_EXP_KEY_SIZE];
-} aes256_ctx_t;
-
-aes256_ctx_t na4_aes256_ctx;
-
-static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32]);
+static void aes256_set_key(AES_CTX *ctx, const uint8_t key[32]);
 
 /* AES-CTR implementation (thanks Gemini) */
 
@@ -789,7 +788,7 @@ na4_ctr_state_t na4_ctr_state;
 static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12]);
 static void aes_ctr_process_frame(uint8_t *data, size_t len,
                                   na4_ctr_state_t *ctr,
-                                  const aes256_ctx_t *aes_ctx);
+                                  const AES_CTX *aes_ctx);
 
 /* when encoding, store the signature */
 static int store_signature(void *handle, int total_bytes)
@@ -881,7 +880,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     if (ctx->encryption_enabled) {
       aes_ctr_process_frame(&moshio_frame[0], n,
-			    &na4_ctr_state, &na4_aes256_ctx);
+			    &na4_ctr_state, &ctx->aes_ctx);
     }
 
     if (ctx->signature_enabled) {
@@ -899,7 +898,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
     return 0;
 
   if (ctx->encryption_enabled) {
-    aes_ctr_process_frame(buf, len, &na4_ctr_state, &na4_aes256_ctx);
+    aes_ctr_process_frame(buf, len, &na4_ctr_state, &ctx->aes_ctx);
   }
 
   if (ctx->signature_enabled) {
@@ -966,7 +965,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
   if (ctx->encryption_enabled) {
     aes_ctr_process_frame(frame_out, bytes_out,
-                          &na4_ctr_state, &na4_aes256_ctx);
+                          &na4_ctr_state, &ctx->aes_ctx);
   }
 
   /* simply skip over initial encrypted moshio data */
@@ -1282,7 +1281,7 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
   hmac_init(&ctx->hmac_ctx, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
 
   /* initialize key used for encryption */
-  aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
+  aes256_set_key(&ctx->aes_ctx, &crypto_keys.aes_key[0]);
 
   /* next step is to output a bit of encrypted salt */
   ctx->crypto_moshio_required = 1;
@@ -1317,7 +1316,7 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
                 sizeof(crypto_keys.mac_key));
 
       /* initialize key used for encryption */
-      aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
+      aes256_set_key(&ctx->aes_ctx, &crypto_keys.aes_key[0]);
       ctx->crypto_header_parsed = 1;
     }
     memset(&crypto_hdr, 0, sizeof(crypto_hdr));
@@ -1394,7 +1393,7 @@ static inline uint8_t xtime(uint8_t x)
 }
 
 /* Expands a 32-byte (256-bit) key into 240 bytes of round keys */
-static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32])
+static void aes256_set_key(AES_CTX *ctx, const uint8_t key[32])
 {
   uint8_t temp[4];
   int i, rcon_idx = 0;
@@ -1430,7 +1429,7 @@ static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32])
 }
 
 /* Encrypts one 16-byte block from `in` to `out` */
-static void aes256_encrypt_block(const aes256_ctx_t *ctx,
+static void aes256_encrypt_block(const AES_CTX *ctx,
                                  const uint8_t in[16], uint8_t out[16])
 {
   uint8_t state[16];
@@ -1503,7 +1502,7 @@ static void aes256_encrypt_block(const aes256_ctx_t *ctx,
 
 static void aes_ctr_process_frame(uint8_t *data, size_t len,
                                   na4_ctr_state_t *ctr,
-                                  const aes256_ctx_t *aes_ctx)
+                                  const AES_CTX *aes_ctx)
 {
   uint8_t keystream[16];
   size_t i, chunk;
