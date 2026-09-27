@@ -11,6 +11,49 @@ There is no Makefile, but with almost no dependencies building the tool is very 
 ```
 
 
+# Help
+
+```console
+% ./na4 --help          
+Usage: ./na4 [OPTIONS]
+
+A portable, dependency-free UNIX streaming filter for framing,
+authenticating, and encrypting data over standard pipes.
+
+Operational Modes:
+  -d              Decode mode (default: encode)
+  -e              Enable AES-256-CTR encryption (requires -s)
+  -s <len>        Authenticate stream using HMAC-SHA256 with a secret
+                  prefix of <len> bytes read from the beginning of stdin
+
+Informational:
+  -h, --help      Display this help message and exit
+
+Secret Delivery (Idiom):
+  Secrets are not passed as CLI flags. Prepend the exact secret bytes to
+  the beginning of stdin using 'echo' and specify its length via -s <len>:
+
+  Encode & Encrypt:
+    ( echo -n "passphrase"; cat payload.bin - ) | ./na4 -e -s 10 > secret.na4
+
+  Decode & Decrypt:
+    ( echo -n "passphrase"; cat secret.na4 - ) | ./na4 -d -e -s 10 > out.bin
+
+Security & Framing Notes:
+  * In encrypted mode (-e -s), a random salt and check token (Frame 0)
+    are derived via a 100k-iteration PBKDF2 loop before streaming starts.
+  * Stream authenticity is verified via HMAC-SHA256 in the tail frames.
+  * To improve privacy the encoded data size varies in encrypted mode.
+  * Zero-byte input produces zero-byte output in plain mode.
+  * Signing zero-byte input requires -e to avoid dictionary vulnerabilities.
+
+Exit Status:
+  0   Success / Verified stream
+  1   Authentication failure, incorrect secret, or corrupted framing
+% 
+```
+
+
 # Tutorial
 
 Encode and decode data like this:
