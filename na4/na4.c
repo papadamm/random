@@ -122,9 +122,16 @@ typedef struct {
   uint8_t buffer[64];
 } SHA256_CTX;
 
+typedef struct {
+    SHA256_CTX inner_ctx;
+    SHA256_CTX outer_ctx;
+    int initialized;
+} HMAC_CTX;
+
 struct na4_context {
   SHA256_CTX secret_sha256_ctx;
   SHA256_CTX sha256_ctx;
+  HMAC_CTX hmac_ctx;
   int aes256_enabled;
   int sha256_enabled;
   int crypto_header_parsed;
@@ -721,6 +728,59 @@ aes256_ctx_t na4_aes256_ctx;
 
 static void aes256_set_key(aes256_ctx_t *ctx, const uint8_t key[32]);
 
+/* HMAC implementation (RFC2104 but with SHA256 instead of MD5) */
+
+static void hmac_init(HMAC_CTX *ctx, uint8_t *secret, int len)
+{
+  uint8_t k_ipad[65] = {}; /* inner padding - key XORd with ipad */
+  uint8_t k_opad[65] = {}; /* outer padding - key XORd with opad */
+  int i;
+
+  memcpy(&k_ipad[0], secret, MIN(len, sizeof(k_ipad)));
+  memcpy(&k_opad[0], secret, MIN(len, sizeof(k_opad)));
+
+  /* XOR key with ipad and opad values */
+  for (i = 0; i < 64; i++) {
+    k_ipad[i] ^= 0x36;
+    k_opad[i] ^= 0x5c;
+  }
+
+  sha256_init(&ctx->inner_ctx);
+  sha256_update(&ctx->inner_ctx, k_ipad, 64);
+
+  sha256_init(&ctx->outer_ctx);
+  sha256_update(&ctx->outer_ctx, k_opad, 64);
+
+  /* wipe keys since context is kept in inner_ctx and outer_ctx */
+  memset(k_ipad, 0, sizeof(k_ipad));
+  memset(k_opad, 0, sizeof(k_opad));
+
+  ctx->initialized = 1;
+}
+
+static void hmac_update(HMAC_CTX *ctx, const uint8_t *buf, size_t len)
+{
+  if (!ctx->initialized) {
+    fprintf(stderr, "warning: hmac_update when init = 0\n");
+  }
+
+  sha256_update(&ctx->inner_ctx, buf, len);
+}
+
+static void hmac_final(uint8_t digest[SHA256_DIGEST_SIZE], HMAC_CTX *ctx)
+{
+  uint8_t inner_hash[32] = {};
+
+  if (!ctx->initialized) {
+    fprintf(stderr, "warning: hmac_final when init = 0\n");
+  }
+
+  /* finalize inner hash based on data stream and envelope it */
+  sha256_final(inner_hash, &ctx->inner_ctx);
+  sha256_update(&ctx->outer_ctx, inner_hash, sizeof(inner_hash));
+  sha256_final(digest, &ctx->outer_ctx);
+}
+
 /* AES-CTR implementation (thanks Gemini) */
 
 typedef struct {
@@ -754,11 +814,16 @@ static int store_signature(void *handle, int total_bytes)
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
-    if (ctx->sha256_derived_key_bytes) {
-      sha256_update(sha256, ctx->sha256_derived_key,
-                    ctx->sha256_derived_key_bytes);
+    if (ctx->aes256_enabled) {
+      /* encryption case still uses sha256 for now */
+      if (ctx->sha256_derived_key_bytes) {
+        sha256_update(sha256, ctx->sha256_derived_key,
+                      ctx->sha256_derived_key_bytes);
+      }
+      sha256_final(sha256_res, sha256);
+    } else {
+      hmac_final(sha256_res, &ctx->hmac_ctx);
     }
-    sha256_final(sha256_res, sha256);
   }
 
   /* store key as two custom tail frames (7 after 8) */
@@ -781,11 +846,16 @@ static int compare_signature(void *handle, int total_bytes)
 
   /* add the SHA256 of the secret key after the data payload */
   if (sha256) {
-    if (ctx->sha256_derived_key_bytes) {
-      sha256_update(sha256, ctx->sha256_derived_key,
-                    ctx->sha256_derived_key_bytes);
+    if (ctx->aes256_enabled) {
+      /* encryption case still uses sha256 for now */
+      if (ctx->sha256_derived_key_bytes) {
+        sha256_update(sha256, ctx->sha256_derived_key,
+                      ctx->sha256_derived_key_bytes);
+      }
+      sha256_final(sha256_res, sha256);
+    } else {
+      hmac_final(sha256_res, &ctx->hmac_ctx);
     }
-    sha256_final(sha256_res, sha256);
   }
 
   if (ctx->sha256_decoded_signature_bytes != 32) {
@@ -807,7 +877,11 @@ static int finish_secret_plaintext(void *handle, int total_bytes)
   sha256_final(ctx->sha256_derived_key, &ctx->secret_sha256_ctx);
   ctx->sha256_derived_key_bytes = 32;
 
-  /* initialize sha256 used for actual data processing */
+  /* initialize HMAC used for actual data processing */
+  hmac_init(&ctx->hmac_ctx, ctx->sha256_derived_key,
+            ctx->sha256_derived_key_bytes);
+
+  // keep old for now
   sha256_init(&ctx->sha256_ctx);
   return 0;
 }
@@ -844,6 +918,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     if (ctx->sha256_enabled) {
       sha256_update(sha256, &moshio_frame[0], n);
+      hmac_update(&ctx->hmac_ctx, &moshio_frame[0], n);
     }
 
     encode_frame_custom(handle, &moshio_frame[0], n, 0);
@@ -862,6 +937,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
   if (ctx->sha256_enabled) {
    sha256_update(sha256, buf, len);
+   hmac_update(&ctx->hmac_ctx, buf, len);
   }
 
   return encode_frame_custom(handle, buf, len, 0);
@@ -921,6 +997,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
   if (ctx->sha256_enabled) {
     sha256_update(sha256, frame_out, bytes_out);
+    hmac_update(&ctx->hmac_ctx, frame_out, bytes_out);
   }
   if (ctx->aes256_enabled) {
     aes_ctr_process_frame(frame_out, bytes_out,
