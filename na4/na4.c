@@ -124,6 +124,11 @@ typedef struct {
 } AES_CTX;
 
 typedef struct {
+  uint8_t block[16];   /* bytes 0..11: nonce, bytes 12..15: big-endian cnt */
+  uint32_t counter;    /* integer tracker */
+} CTR_CTX;
+
+typedef struct {
   uint32_t state[8];
   uint64_t count;
   uint8_t buffer[64];
@@ -139,6 +144,7 @@ struct na4_context {
   SHA256_CTX secret_sha256_ctx;
   HMAC_CTX hmac_ctx;
   AES_CTX aes_ctx;
+  CTR_CTX ctr_ctx;
   int signature_enabled;
   int encryption_enabled;
   int crypto_header_parsed;
@@ -779,15 +785,9 @@ static void aes256_set_key(AES_CTX *ctx, const uint8_t key[32]);
 
 /* AES-CTR implementation (thanks Gemini) */
 
-typedef struct {
-  uint8_t block[16];   /* bytes 0..11: nonce, bytes 12..15: big-endian cnt */
-  uint32_t counter;    /* integer tracker */
-} na4_ctr_state_t;
-
-na4_ctr_state_t na4_ctr_state;
-static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12]);
+static void ctr_init(CTR_CTX *state, const uint8_t nonce[12]);
 static void aes_ctr_process_frame(uint8_t *data, size_t len,
-                                  na4_ctr_state_t *ctr,
+                                  CTR_CTX *ctr,
                                   const AES_CTX *aes_ctx);
 
 /* when encoding, store the signature */
@@ -880,7 +880,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     if (ctx->encryption_enabled) {
       aes_ctr_process_frame(&moshio_frame[0], n,
-			    &na4_ctr_state, &ctx->aes_ctx);
+			    &ctx->ctr_ctx, &ctx->aes_ctx);
     }
 
     if (ctx->signature_enabled) {
@@ -898,7 +898,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
     return 0;
 
   if (ctx->encryption_enabled) {
-    aes_ctr_process_frame(buf, len, &na4_ctr_state, &ctx->aes_ctx);
+    aes_ctr_process_frame(buf, len, &ctx->ctr_ctx, &ctx->aes_ctx);
   }
 
   if (ctx->signature_enabled) {
@@ -965,7 +965,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
   if (ctx->encryption_enabled) {
     aes_ctr_process_frame(frame_out, bytes_out,
-                          &na4_ctr_state, &ctx->aes_ctx);
+                          &ctx->ctr_ctx, &ctx->aes_ctx);
   }
 
   /* simply skip over initial encrypted moshio data */
@@ -1180,7 +1180,7 @@ static void kdf_expand_keys(struct na4_context *na4_ctx,
   sha256_update(&ctx, (const uint8_t *)"ctr-nonce", 9);
   sha256_final(h, &ctx);
 
-  ctr_init(&na4_ctr_state, h);
+  ctr_init(&na4_ctx->ctr_ctx, h);
 
   /* Clean up sensitive stack memory */
   memset(h, 0, sizeof(h));
@@ -1325,7 +1325,7 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
   return ret;
 }
 
-static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12])
+static void ctr_init(CTR_CTX *state, const uint8_t nonce[12])
 {
   memcpy(state->block, nonce, 12);
   state->counter = 0;
@@ -1335,7 +1335,7 @@ static void ctr_init(na4_ctr_state_t *state, const uint8_t nonce[12])
   state->block[15] = 0;
 }
 
-static void ctr_increment(na4_ctr_state_t *state)
+static void ctr_increment(CTR_CTX *state)
 {
   state->counter++;
   /* Write 32-bit counter in Big-Endian format */
@@ -1501,8 +1501,7 @@ static void aes256_encrypt_block(const AES_CTX *ctx,
 }
 
 static void aes_ctr_process_frame(uint8_t *data, size_t len,
-                                  na4_ctr_state_t *ctr,
-                                  const AES_CTX *aes_ctx)
+                                  CTR_CTX *ctr, const AES_CTX *aes_ctx)
 {
   uint8_t keystream[16];
   size_t i, chunk;
