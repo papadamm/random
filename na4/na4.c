@@ -11,9 +11,9 @@
 /* the data gets coded binary <-> ASCII with an embedded CRC4 checksum.      */
 /* any amount data (including 0-byte) will pass through in the default mode. */
 /*                                                                           */
-/* if the -s option is enabled SHA256 is used to verify the encoded contents */
-/* please pass an integer (N) to -s and feed N bytes to stdin for suffix MAC */
-/* note that the encoded contents will pass through regardless SHA256 match. */
+/* if the -s option is enabled HMAC is used to verify the encoded contents.  */
+/* please pass an integer (N) to -s and feed N bytes of secret to stdin.     */
+/* note that the encoded contents will pass through regardless HMAC match.   */
 /* feeding data without signature (or empty) to na4 -d -s N will cause error */
 /*                                                                           */
 /* if the -e option is enabled AES256 is used to encrypt the data. for this  */
@@ -29,7 +29,7 @@
 /*                                                                           */
 /* the idea is to make a blend of efficiency and robustness with the main    */
 /* tradeoff that the base77 slice and glue code is a tiny bit math heavy     */
-/* however compared to SHA256 and AES256 the default mode is quite light     */
+/* however compared to HMAC and AES256 the default mode is quite light.      */
 /*                                                                           */
 /* the character set is the same as the 1654.c base54 and base16 combined    */
 /* but extended to be case sensitive and with the '*' character added:       */
@@ -130,7 +130,6 @@ typedef struct {
 
 struct na4_context {
   SHA256_CTX secret_sha256_ctx;
-  SHA256_CTX sha256_ctx;
   HMAC_CTX hmac_ctx;
   int aes256_enabled;
   int sha256_enabled;
@@ -715,7 +714,7 @@ static void sha256_final(uint8_t digest[SHA256_DIGEST_SIZE], SHA256_CTX *ctx)
   }
 }
 
-/* HMAC implementation (RFC2104 but with SHA256 instead of MD5) */
+/* HMAC-SHA256 implementation (RFC2104 but with SHA256 instead of MD5) */
 
 static void hmac_init(HMAC_CTX *ctx, uint8_t *secret, int len)
 {
@@ -794,13 +793,11 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
                                   na4_ctr_state_t *ctr,
                                   const aes256_ctx_t *aes_ctx);
 
-/* Simple Suffix-MAC with SHA-256 */
-/* when encoding, store the sha256 sum */
+/* when encoding, store the signature */
 static int store_signature(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
-  uint8_t sha256_res[32];
+  uint8_t signature[32] = {};
 
   /* no need to store SHA256 when "-s" is missing */
   if (!ctx->sha256_enabled) {
@@ -812,58 +809,35 @@ static int store_signature(void *handle, int total_bytes)
     return 0;
   }
 
-  /* add the SHA256 of the secret key after the data payload */
-  if (sha256) {
-    if (ctx->aes256_enabled) {
-      /* encryption case still uses sha256 for now */
-      if (ctx->sha256_derived_key_bytes) {
-        sha256_update(sha256, ctx->sha256_derived_key,
-                      ctx->sha256_derived_key_bytes);
-      }
-      sha256_final(sha256_res, sha256);
-    } else {
-      hmac_final(sha256_res, &ctx->hmac_ctx);
-    }
-  }
+  /* store the HMAC result after the data payload */
+  hmac_final(signature, &ctx->hmac_ctx);
 
   /* store key as two custom tail frames (7 after 8) */
-  encode_frame_custom(handle, &sha256_res[0], 16, encode_char_top_64(8));
-  encode_frame_custom(handle, &sha256_res[16], 16, encode_char_top_64(7));
+  encode_frame_custom(handle, &signature[0], 16, encode_char_top_64(8));
+  encode_frame_custom(handle, &signature[16], 16, encode_char_top_64(7));
   return 0;
 }
 
-/* when decoding, compare with the stored sum */
+/* when decoding, compare with the signature in the stream */
 static int compare_signature(void *handle, int total_bytes)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
-  uint8_t sha256_res[32];
+  uint8_t signature[32] = {};
 
   /* no need to compare SHA256 when "-s" is missing */
   if (!ctx->sha256_enabled) {
     return 0;
   }
 
-  /* add the SHA256 of the secret key after the data payload */
-  if (sha256) {
-    if (ctx->aes256_enabled) {
-      /* encryption case still uses sha256 for now */
-      if (ctx->sha256_derived_key_bytes) {
-        sha256_update(sha256, ctx->sha256_derived_key,
-                      ctx->sha256_derived_key_bytes);
-      }
-      sha256_final(sha256_res, sha256);
-    } else {
-      hmac_final(sha256_res, &ctx->hmac_ctx);
-    }
-  }
+  /* calculate the HMAC result */
+  hmac_final(signature, &ctx->hmac_ctx);
 
   if (ctx->sha256_decoded_signature_bytes != 32) {
     ERROR(ctx, err_empty_stream);
     return -1;
   }
 
-  if (memcmp(sha256_res, ctx->sha256_decoded_signature, 32) != 0) {
+  if (memcmp(signature, ctx->sha256_decoded_signature, 32) != 0) {
     ERROR(ctx, err_signature_mismatch);
     return -1;
   }
@@ -880,16 +854,12 @@ static int finish_secret_plaintext(void *handle, int total_bytes)
   /* initialize HMAC used for actual data processing */
   hmac_init(&ctx->hmac_ctx, ctx->sha256_derived_key,
             ctx->sha256_derived_key_bytes);
-
-  // keep old for now
-  sha256_init(&ctx->sha256_ctx);
   return 0;
 }
 
 static int encode_frame(void *handle, uint8_t *buf, int len)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t moshio_frame[INPUT_BUFSIZE];
   int nr_moshio_bytes;
   int nr_data_bytes;
@@ -917,7 +887,6 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
     }
 
     if (ctx->sha256_enabled) {
-      sha256_update(sha256, &moshio_frame[0], n);
       hmac_update(&ctx->hmac_ctx, &moshio_frame[0], n);
     }
 
@@ -936,7 +905,6 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->sha256_enabled) {
-   sha256_update(sha256, buf, len);
    hmac_update(&ctx->hmac_ctx, buf, len);
   }
 
@@ -971,7 +939,6 @@ static int decode_custom_tail(void *handle, int tail_type,
 static int decode_frame(void *handle, uint8_t *buf, int len)
 {
   struct na4_context *ctx = handle;
-  SHA256_CTX *sha256 = &ctx->sha256_ctx;
   uint8_t frame_out[INPUT_BUFSIZE];
   int bytes_out = 0;
   int res = 0;
@@ -996,7 +963,6 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->sha256_enabled) {
-    sha256_update(sha256, frame_out, bytes_out);
     hmac_update(&ctx->hmac_ctx, frame_out, bytes_out);
   }
   if (ctx->aes256_enabled) {
@@ -1313,13 +1279,15 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
 
   crypto_init_encoder_late(ctx, &crypto_hdr, &crypto_keys);
 
-  /* initialize sha256 used for actual data processing */
-  sha256_init(&ctx->sha256_ctx);
+  /* initialize HMAC used for actual data processing */
+  hmac_init(&ctx->hmac_ctx, crypto_keys.mac_key, sizeof(crypto_keys.mac_key));
 
+#if 0
   /* save key for use later when data processing is finished */
   memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
          sizeof(crypto_keys.mac_key));
   ctx->sha256_derived_key_bytes = 32;
+#endif
 
   aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
 
@@ -1333,10 +1301,9 @@ static int finish_secret_encrypt(void *handle, int total_bytes)
 
 static int finish_secret_decrypt(void *handle, int total_bytes)
 {
-  struct na4_context *ctx = handle;
-
-  /* initialize sha256 used for actual data processing */
-  sha256_init(&ctx->sha256_ctx);
+  /* too early to init HMAC for the decode of encrypted data */
+  /* salt is not loaded yet at this point in time */
+  /* for actual HMAC init see process_frame_decrypt_late() */
   return 0;
 }
 
@@ -1352,11 +1319,15 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
     ret = crypto_init_decoder(ctx, &crypto_hdr, &crypto_keys);
 
     if (ret == 0) {
+      /* initialize HMAC used for actual data processing */
+      hmac_init(&ctx->hmac_ctx, crypto_keys.mac_key,
+                sizeof(crypto_keys.mac_key));
+#if 0
       /* save key for use later when data processing is finished */
       memcpy(ctx->sha256_derived_key, crypto_keys.mac_key,
              sizeof(crypto_keys.mac_key));
       ctx->sha256_derived_key_bytes = 32;
-
+#endif
       aes256_set_key(&na4_aes256_ctx, &crypto_keys.aes_key[0]);
       ctx->crypto_header_parsed = 1;
     }
