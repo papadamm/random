@@ -1,9 +1,9 @@
 # na4 (base77 encoder/decoder tool with checksum and crypto support)
 
-na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional SHA256 validation. There is also optional AES-CTR encryption support.
+na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional HMAC-SHA256 signature validation. There is also optional AES-256-CTR encryption support.
 
 
-# Building 
+# Build
 
 There is no Makefile, but with almost no dependencies building the tool is very simple:
 ```console
@@ -78,7 +78,7 @@ Compare encoding efficiency of base77 with base64 like this:
 % seq 539 | ./na4 | wc -c  
     2688
 % seq 539 | ./na4 -s 0 | wc -c
-warning: SHA256 signature mode enabled with zero secret (aka naive mode)
+warning: using potentially unsafe 0-byte secret
     2736
 % ( echo -n X; seq 539 ) | wc -c 
     2049
@@ -90,9 +90,9 @@ warning: SHA256 signature mode enabled with zero secret (aka naive mode)
 As can be seen above comparing uudecode and the last example with encryption enabled, na4 with both SHA256 and AES-CTR support enabled is using less space than regular Base64.
 
 
-# SHA256
+# Signature
 
-Using the SHA256 checksum feature in "naive mode":
+Using the HMAC-SHA256 checksum feature in "naive mode":
 ```console
 % echo -n hello | ./na4 -s 0
 warning: using potentially unsafe 0-byte secret
@@ -116,7 +116,7 @@ Please note that this "naive mode" (without a secret) is only intended for testi
 [Also the above examples includes a few "2> /dev/stderr" which is common shell syntax used to redirect standard error elsewhere. This to get rid of the warning messages.]
 
 
-Using SHA256 with a secret prefix on stdin used as a suffix MAC:
+Using HMAC-SHA256 with a secret prefix on stdin:
 ```console
 % echo -n "sex laxar i en laxask" | ./na4 -s 10
 _8DaPIp)oMW_jej)A^D0TgqEwnVPNysE5iC5O9Qs<]D0<^0mYGzbigc*b4z@--gs3%
@@ -136,7 +136,7 @@ Above the secret "sex laxar " is shared by the encoder and the decoder. When the
 
 # Crypto
 
-The "-e" option together with "-s" enables AES-CTR encryption:
+The "-e" option together with "-s" enables AES-256-CTR encryption:
 ```console
 % echo -n "Xhello" | ./na4 -s 1 -e
 [H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y
@@ -145,7 +145,7 @@ hello%
 % echo $?
 0
 % echo -n "Y[H21Ub{m[JX5pMtLMR)@2WutiApsn_20a1XQgVp^D0Tt@.tip@p,G00fAacSnRC]D1F{KE_o6>d4n4Hku^eAr6Y" | ./na4 -d -e -s 1
-error: incorrect password
+error: secret mismatch
 % echo $?
 1
 ```
