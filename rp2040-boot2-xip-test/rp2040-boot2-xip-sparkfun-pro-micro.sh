@@ -308,15 +308,20 @@ CRC=`echo "${CRC8}" | xxd -r -ps | bitrev | invert | xxd -ps` # rev, inv
  | ${CROSS_COMPILE}as ${AS_OPTS} -mbig-endian -o "${t0}"
 ${CROSS_COMPILE}objcopy "${t0}" -O binary "${t1}"
 
-# uuencode padded code followed by checksum to stdout (used as file.uue below)
-( echo "${FIRST_252}" | xxd -r -ps; cat "${t1}";
 
-# build the code present after boot2 with linker script
+# uuencode padded code followed by checksum to stdout (used as file.uue below)
+# for skip-led-code encode as base64 with "uuencode -m"
+  if [ "$1" == "skip-led-code" ]; then
+( echo "${FIRST_252}" | xxd -r -ps; cat "${t1}"; ) | uuencode -m -
+  else
+( echo "${FIRST_252}" | xxd -r -ps; cat "${t1}";
+  # build the code present after boot2 with linker script
   emit_ldscript2 0x10000100 0x300 > "${t2}"
   emit_asm2 | ${CROSS_COMPILE}gcc ${AS_OPTS} -E - | ${CROSS_COMPILE}as ${AS_OPTS} -mlittle-endian -o "${t1}"
   ${CROSS_COMPILE}ld "-T${t2}" "${t1}" -o "${t0}"
   ${CROSS_COMPILE}objcopy "${t0}" -O binary "${t1}"; cat "${t1}";
 ) | uuencode -
+fi
 
 # convert, inspect, disassemble, program
 #
