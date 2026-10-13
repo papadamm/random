@@ -21,9 +21,13 @@
 /* reserves space for yet another side channel opportunity                   */
 /*                                                                           */
 
+#ifndef __STANDALONE__
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#define __BUILD_ENCODER__
+#define __BUILD_DECODER__
+#endif
 
 char hex[] = "0123456789ABCDEF0123456789abcdef";
 char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
@@ -48,6 +52,8 @@ static char *__strchr(const char *s, int c)
   return NULL;
 }
 
+#ifdef __BUILD_ENCODER__
+
 char encode_lower_hex_char(uint8_t value)
 {
   return hex[value + 16]; /* hex[16] = '0', hex[31] = 'f' */
@@ -70,6 +76,9 @@ int encode_hex(char (*encode)(uint8_t))
 
   return 0;
 }
+
+#endif /* __BUILD_ENCODER__ */
+#ifdef __BUILD_DECODER__
 
 static int decode_hex_char(int ch)
 {
@@ -120,6 +129,8 @@ int decode_hex(void)
   return 0;
 }
 
+#endif /* __BUILD_DECODER__ */
+
 static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 {
   uint32_t data_in = (prev << 16) | (curr << 8) | (next << 0);
@@ -135,6 +146,8 @@ static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 
   return !(cnt & 0x01);
 }
+
+#ifdef __BUILD_ENCODER__
 
 /* generate an ASCII character using the case sensitive 54 character set */
 static char encode_54_char(uint8_t value)
@@ -236,6 +249,9 @@ int encode_54d(int allow_single)
   return 0;
 }
 
+#endif /* __BUILD_ENCODER__ */
+#ifdef __BUILD_DECODER__
+
 static int decode_54_char(int ch)
 {
   const char *str = &fivefour[0];
@@ -328,6 +344,9 @@ int decode_54(int allow_single, int allow_dual,
   return 0;
 }
 
+#endif /* __BUILD_DECODER__ */
+#ifndef __STANDALONE__
+
 static void err(const char *err_msg)
 {
   fprintf(stderr, "error: %s\n", err_msg);
@@ -393,3 +412,5 @@ int main(int argc, char **argv)
   fprintf(fp_usage, "  decode-54d - decode 54 dual mode\n");
   fprintf(fp_usage, "  decode-54ds - decode 54 dual and 54 single mode\n");
 }
+
+#endif /* __STANDALONE__ */
