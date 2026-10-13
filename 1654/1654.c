@@ -27,16 +27,15 @@
 #include <string.h>
 #define __BUILD_ENCODER__
 #define __BUILD_DECODER__
-#endif
-
-char hex[] = "0123456789ABCDEF0123456789abcdef";
-char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
-
 static void err(const char *err_msg);
 static int read_bin(uint8_t *buf);
 static int write_char(uint8_t data);
 static int read_char(uint8_t *buf);
 static int write_bin(uint8_t data);
+#endif
+
+char hex[] = "0123456789ABCDEF0123456789abcdef";
+char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
 
 /* simple strchr() version operating on one-byte-per char ASCII */
 static char *__strchr(const char *s, int c)
