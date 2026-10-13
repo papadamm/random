@@ -10,6 +10,18 @@ char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
 ```
 Base16 in this case consists of both upper and lower case ASCII characters. Base54 consists of the rest of the alphabet plus a couple of special characters. In this implementation a single ASCII character is either in Base16, Base54 or out of scope.
 
+# Tutorial
+
+```console
+% echo -n "CODE" | ./1654 encode-54s
+QTOlOUQV%
+% echo -n "CODE" | ./1654 encode-54d
+R]LR}v%
+% echo -n "CODE" | ./1654 encode-x16
+434f4445%
+```
+Above the string "CODE" gets encoded into Base54 single mode, Base54 dual mode and Base16 lower case.
+
 # Build and Test
 
 There is no Makefile, but building the tool is very simple:
@@ -34,7 +46,7 @@ encode-54d:decode-54ds PASS
 
 # Base54
 
-Quick tutorial for Base54:
+Quick tutorial to encode single mode, dual mode and combined dual and single (with decoding):
 ```console
 % echo "hello" | ./1654 encode-54s
 Q^O@YGWGWJIQ%
@@ -42,6 +54,8 @@ Q^O@YGWGWJIQ%
 ZO]ZoGZ(i%
 % echo -n "hello again" | ./1654 encode-54ds
 ZO]ZoGZ(.Xp)Xp-YI%
+% echo -n "ZO]ZoGZ(.Xp)Xp-YI" | ./1654 decode-54ds
+hello again%
 ```
 
 The 1654 tool implements Base54 with a 54 letter character set which is a subset of ASCII. It does this together with a particular encoding format with two different modes of operation. The Base54 design means in practice using 5.6875 bits per character. This in turn allows for three extra bits when encoding 8 bits of input data and 1 extra bit when encoding 16 bits of input data.
