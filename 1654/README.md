@@ -119,3 +119,8 @@ It is obviously also possible to decode data from xxd minus white space:
 % echo -n "hello" | xxd -p | tr -d "[:space:]" | ./1654 decode-xX16
 hello%
 ```
+
+# Final note:
+
+If you found 1654 interesting you will probably also enjoy na4 that converts 32 bytes data into 42 ASCII characters:
+https://github.com/papadamm/random/blob/main/na4/README.md
