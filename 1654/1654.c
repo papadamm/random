@@ -29,6 +29,10 @@ char hex[] = "0123456789ABCDEF0123456789abcdef";
 char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
 
 static void err(const char *err_msg);
+static int read_bin(uint8_t *buf);
+static int write_char(uint8_t data);
+static int read_char(uint8_t *buf);
+static int write_bin(uint8_t data);
 
 /* simple strchr() version operating on one-byte-per char ASCII */
 static char *__strchr(const char *s, int c)
@@ -59,9 +63,9 @@ static int encode_hex(char (*encode)(uint8_t))
 {
   uint8_t buf[1];
 
-  while (fread(&buf[0], sizeof(buf[0]), 1, stdin)) {
-    printf("%c", encode(buf[0] >> 4));
-    printf("%c", encode(buf[0] & 0x0f));
+  while (read_bin(&buf[0])) {
+    write_char(encode(buf[0] >> 4));
+    write_char(encode(buf[0] & 0x0f));
   }
 
   return 0;
@@ -84,20 +88,18 @@ static int decode_hex_char(int ch)
 static int decode_hex(void)
 {
   uint8_t in_buf[1];
-  uint8_t out_buf[1];
   int high_nibble = 1;
   int prev_data = 0;
   int this_data;
 
-  while (fread(&in_buf[0], sizeof(in_buf[0]), 1, stdin)) {
+  while (read_char(&in_buf[0])) {
     if (high_nibble) {
       prev_data = decode_hex_char(in_buf[0]);
     } else {
       if (prev_data >= 0) {
         this_data = decode_hex_char(in_buf[0]);
         if (this_data >= 0) {
-          out_buf[0] = (prev_data << 4) | this_data;
-          fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+          write_bin((prev_data << 4) | this_data);
         } else {
           err("unable to decode the lower nibble hex character");
           return 1;
@@ -158,8 +160,8 @@ static uint8_t encode_54s_byte(uint8_t byte, uint8_t v0, int oob)
   crc = calculate_54s_crc(v0, v1, v2);
   v1 = encode_54s_v1(msv, oob, crc, 0);
 
-  printf("%c", encode_54_char(v1));
-  printf("%c", encode_54_char(v2));
+  write_char(encode_54_char(v1));
+  write_char(encode_54_char(v2));
 
   return v2;
 }
@@ -171,7 +173,7 @@ static int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
   uint8_t v0 = 0;
   int oob = 0;
 
-  while (fread(&buf[0], sizeof(buf[0]), 1, stdin)) {
+  while (read_bin(&buf[0])) {
     if (get_oob) {
       oob = get_oob(oob_data);
     }
@@ -198,7 +200,7 @@ static int encode_54d(int allow_single)
   uint8_t msv, v1, v2, v3;
   uint8_t v0 = 0;
 
-  while (fread(&buf[0], sizeof(buf[0]), 1, stdin)) {
+  while (read_bin(&buf[0])) {
     if (char_nr == 0) {
       prev_data = buf[0];
     } else {
@@ -212,9 +214,9 @@ static int encode_54d(int allow_single)
 
       v1 = encode_54d_v1(msv, 0, 0, 1); /* mode = 1, three char dual mode */
 
-      printf("%c", encode_54_char(v1));
-      printf("%c", encode_54_char(v2));
-      printf("%c", encode_54_char(v3));
+      write_char(encode_54_char(v1));
+      write_char(encode_54_char(v2));
+      write_char(encode_54_char(v3));
 
       v0 = v3;
     }
@@ -252,7 +254,6 @@ static int decode_54(int allow_single, int allow_dual,
                      void (*put_oob)(void *oob_data, int v), void *oob_data)
 {
   uint8_t in_buf[1];
-  uint8_t out_buf[1];
   int char_nr = 0;
   int v0 = 0;
   int v1 = 0;
@@ -261,7 +262,7 @@ static int decode_54(int allow_single, int allow_dual,
   uint16_t tmp16;
   int crc;
 
-  while (fread(&in_buf[0], sizeof(in_buf[0]), 1, stdin)) {
+  while (read_char(&in_buf[0])) {
     if (char_nr == 0) {
       v1 = decode_54_char(in_buf[0]);
       char_nr++;
@@ -286,8 +287,7 @@ static int decode_54(int allow_single, int allow_dual,
           }
 
           /* most significant value is stored in the first character */
-          out_buf[0] = ((v1 >> 3) * 54) + v2;
-          fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+          write_bin(((v1 >> 3) * 54) + v2);
           v0 = v2;
         } else {
           err("unable to decode second 54 character");
@@ -309,10 +309,8 @@ static int decode_54(int allow_single, int allow_dual,
         }
 
         tmp16 = ((v1 >> 1) * 54 * 54) + (v2 * 54) + v3;
-        out_buf[0] = tmp16 >> 8;
-        fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
-        out_buf[0] = tmp16 & 0xff;
-        fwrite(&out_buf[0], sizeof(out_buf[0]), 1, stdout);
+        write_bin(tmp16 >> 8);
+        write_bin(tmp16 & 0xff);
         char_nr = 0;
         v0 = v3;
       } else {
@@ -334,6 +332,14 @@ static void err(const char *err_msg)
 {
   fprintf(stderr, "error: %s\n", err_msg);
 }
+
+/* used by encoder */
+static int read_bin(uint8_t *buf) { return fread(buf, 1, 1, stdin); }
+static int write_char(uint8_t data) { return fwrite(&data, 1, 1, stdout); }
+
+/* used by decoder */
+static int read_char(uint8_t *buf) { return fread(buf, 1, 1, stdin); }
+static int write_bin(uint8_t data) { return fwrite(&data, 1, 1, stdout); }
 
 int main(int argc, char **argv)
 {
