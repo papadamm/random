@@ -116,24 +116,6 @@ static int decode_hex(void)
   return 0;
 }
 
-/* generate an ASCII character using the case sensitive 54 character set */
-static char encode_54_char(uint8_t value)
-{
-  return fivefour[value];
-}
-
-/* the first encoded 54 character has three embedded flags in single mode */
-static uint8_t encode_54s_v1(uint8_t msv, int oob, int crc, int mode)
-{
-  return (msv << 3) | (oob << 2) | (crc << 1) | (mode << 0);
-}
-
-/* the first encoded 54 character has one embedded flag in dual mode */
-static uint8_t encode_54d_v1(uint8_t msv, int oob, int crc, int mode)
-{
-  return (msv << 1) | (mode << 0);
-}
-
 static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 {
   uint32_t data_in = (prev << 16) | (curr << 8) | (next << 0);
@@ -148,6 +130,18 @@ static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
   }
 
   return !(cnt & 0x01);
+}
+
+/* generate an ASCII character using the case sensitive 54 character set */
+static char encode_54_char(uint8_t value)
+{
+  return fivefour[value];
+}
+
+/* the first encoded 54 character has three embedded flags in single mode */
+static uint8_t encode_54s_v1(uint8_t msv, int oob, int crc, int mode)
+{
+  return (msv << 3) | (oob << 2) | (crc << 1) | (mode << 0);
 }
 
 static uint8_t encode_54s_byte(uint8_t byte, uint8_t v0, int oob)
@@ -184,6 +178,12 @@ static int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
   }
 
   return 0;
+}
+
+/* the first encoded 54 character has one embedded flag in dual mode */
+static uint8_t encode_54d_v1(uint8_t msv, int oob, int crc, int mode)
+{
+  return (msv << 1) | (mode << 0);
 }
 
 /* encode binary input stream to dual mode 54 ASCII character output */
