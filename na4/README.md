@@ -3,12 +3,33 @@
 na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional HMAC-SHA256 signature validation. There is also optional AES-256-CTR encryption support.
 
 
+# Character Set
+
+The source code is rather well documented and contains the following comments:
+```console
+/* the character set is the same as the 1654.c base54 and base16 combined    */
+/* but extended to be case sensitive and with the '*' character added:       */
+/*                                                                           */
+/* 0123456789                                                                */
+/* ABCDEFGHIJKLMNOPQRSTUVWXYZ                                                */
+/* abcdefghijklmnopqrstuvwxyz                                                */
+/* (),-.<>@[]^_{}*                                                           */
+/*                                                                           */
+```
+An encoded single ASCII character is either in the above Base77 set or out of scope.
+
+
 # Build
 
 There is no Makefile, but with almost no dependencies building the tool is very simple:
 ```console
 % gcc -Wall -o na4 na4.c
 ```
+
+
+# Test
+
+Included is in the git repo is also the script "test.sh" that may be used to run a couple of basic tests.
 
 
 # Help
@@ -154,3 +175,9 @@ error: secret mismatch
 # Note
 
 The utility follows standard Unix philosophy where lack of error message means success. As usual the exit value may be used to check if the operation was successful or not.
+
+
+# Final Note
+
+If you found na4 interesting you might want to look at the less advanced single/dual byte 1654 implementation:
+https://github.com/papadamm/random/blob/main/1654/README.md
