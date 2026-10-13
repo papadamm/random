@@ -1,6 +1,17 @@
 # 1654 (base16 and base54 encoder/decoder tool)
 1654 is a tool to encode and decode binaries to/from ASCII format. The tool supports a few different formats, mainly centered around Base54 but also hexadecimal Base16, mostly for convenience.
 
+# Character Set
+
+The source code contains the following:
+```console
+char hex[] = "0123456789ABCDEF0123456789abcdef";
+char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
+```
+Base16 in this case consists of both upper and lower case ASCII characters. Base54 consists of the rest of the alphabet plus a couple of special characters. In this implementation a single ASCII character is either in Base16, Base54 or out of scope.
+
+# Build and Test
+
 There is no Makefile, but building the tool is very simple:
 ```console
 % gcc -Wall -o 1654 1654.c
@@ -21,6 +32,8 @@ encode-54d:decode-54ds PASS
 %
 ```
 
+# Base54:
+
 Quick tutorial for Base54:
 ```console
 % echo "hello" | ./1654 encode-54s
@@ -30,8 +43,6 @@ ZO]ZoGZ(i%
 % echo -n "hello again" | ./1654 encode-54ds
 ZO]ZoGZ(.Xp)Xp-YI%
 ```
-
-# Base54:
 
 The 1654 tool implements Base54 with a 54 letter character set which is a subset of ASCII. It does this together with a particular encoding format with two different modes of operation. The Base54 design means in practice using 5.6875 bits per character. This in turn allows for three extra bits when encoding 8 bits of input data and 1 extra bit when encoding 16 bits of input data.
 
