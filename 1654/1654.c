@@ -48,18 +48,18 @@ static char *__strchr(const char *s, int c)
   return NULL;
 }
 
-static char encode_lower_hex_char(uint8_t value)
+char encode_lower_hex_char(uint8_t value)
 {
   return hex[value + 16]; /* hex[16] = '0', hex[31] = 'f' */
 }
 
-static char encode_upper_hex_char(uint8_t value)
+char encode_upper_hex_char(uint8_t value)
 {
   return hex[value]; /* hex[0] = '0', hex[15] = 'F' */
 }
 
 /* encode binary input stream to hexadecimal ASCII character output */
-static int encode_hex(char (*encode)(uint8_t))
+int encode_hex(char (*encode)(uint8_t))
 {
   uint8_t buf[1];
 
@@ -85,7 +85,7 @@ static int decode_hex_char(int ch)
 }
 
 /* decode hex character stream, both lower and upper case ASCII supported */
-static int decode_hex(void)
+int decode_hex(void)
 {
   uint8_t in_buf[1];
   int high_nibble = 1;
@@ -167,7 +167,7 @@ static uint8_t encode_54s_byte(uint8_t byte, uint8_t v0, int oob)
 }
 
 /* encode binary input stream to single mode 54 ASCII character output */
-static int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
+int encode_54s(int (*get_oob)(void *oob_data), void *oob_data)
 {
   uint8_t buf[1];
   uint8_t v0 = 0;
@@ -191,7 +191,7 @@ static uint8_t encode_54d_v1(uint8_t msv, int oob, int crc, int mode)
 }
 
 /* encode binary input stream to dual mode 54 ASCII character output */
-static int encode_54d(int allow_single)
+int encode_54d(int allow_single)
 {
   uint8_t buf[1];
   int char_nr = 0;
@@ -250,8 +250,8 @@ static int decode_54_char(int ch)
 }
 
 /* decode single 54 and/or dual 54 depending on flags */
-static int decode_54(int allow_single, int allow_dual,
-                     void (*put_oob)(void *oob_data, int v), void *oob_data)
+int decode_54(int allow_single, int allow_dual,
+              void (*put_oob)(void *oob_data, int v), void *oob_data)
 {
   uint8_t in_buf[1];
   int char_nr = 0;
