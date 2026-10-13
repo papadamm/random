@@ -32,7 +32,7 @@ encode-54d:decode-54ds PASS
 %
 ```
 
-# Base54:
+# Base54
 
 Quick tutorial for Base54:
 ```console
@@ -113,7 +113,7 @@ Please note that if the goal is to enable hardening then using single mode only 
 
 Also please note that the CRC implementation will provide some very basic error detection at this point. It is recommended to consider using the OOB method and additional checksums for chunks of data to handle even more serious error conditions like for instance reordered or incorrectly repeated data. 
 
-# Base16:
+# Base16
 
 Examples with upper and lower case hexadecimal encoding and decoding:
 ```console
@@ -131,7 +131,7 @@ It is obviously also possible to decode data from xxd minus white space:
 hello%
 ```
 
-# Final note:
+# Final Note
 
 If you found 1654 interesting you will probably also enjoy na4 that converts 32 bytes data into 42 ASCII characters:
 https://github.com/papadamm/random/blob/main/na4/README.md
