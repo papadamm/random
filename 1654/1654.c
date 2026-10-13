@@ -28,6 +28,20 @@
 char hex[] = "0123456789ABCDEF0123456789abcdef";
 char fivefour[] = "GHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz(),-.<>@[]^_{}";
 
+/* simple strchr() version operating on one-byte-per char ASCII */
+static char *__strchr(const char *s, int c)
+{
+  int i;
+
+  for (i = 0; s[i] != '\0'; i++) {
+    if (s[i] == c) {
+      return (void *)&s[i];
+    }
+  }
+
+  return NULL;
+}
+
 static char encode_lower_hex_char(uint8_t value)
 {
   return hex[value + 16]; /* hex[16] = '0', hex[31] = 'f' */
@@ -56,7 +70,7 @@ static int decode_hex_char(int ch)
   const char *str = &hex[0];
   char *found;
 
-  found = strchr(str, ch);
+  found = __strchr(str, ch);
   if (found) {
     return (found - str) & 0x0f; /* both upper and lower characters */
   }
@@ -223,7 +237,7 @@ static int decode_54_char(int ch)
   const char *str = &fivefour[0];
   char *found;
 
-  found = strchr(str, ch);
+  found = __strchr(str, ch);
   if (found) {
     return found - str;
   }
