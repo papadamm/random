@@ -154,7 +154,7 @@ As can be seen above comparing uudecode and the last example with encryption ena
 
 # Note
 
-The utility follows standard Unix philosophy where lack of error message means success. As usual the exit value may be used to check if the operation was successful or not.
+The utility follows standard Unix philosophy where lack of error message means success. As usual the exit value may be used to check if the operation was successful or not. When encoding data with encryption enabled the size of the encoded data will vary somewhat to improve privacy.
 
 
 # Technical Details
