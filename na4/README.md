@@ -1,6 +1,10 @@
-# na4 (base77 encoder/decoder tool with checksum and crypto support)
+# na4 (base77 encoder/decode tool with checksum and crypto support)
 
-na4 is a tool to encode and decode binaries to/from ASCII format. The tool encodes data with a Base77 character set and includes CRC4 for robustness as well as optional HMAC-SHA256 signature validation. There is also optional AES-256-CTR encryption support.
+The tool "na4" is used to convert data between ASCII and binary formats. It could be seen as a more modern version of uuencode/uudecode or as an alternative to base64 encoding. Feature wise it not only encodes and decodes, it also adds checksum support for robustness, optional signature validation to prevent data stream tampering as well as optional encryption. All this while encoding rather efficiently and not adding any extra dependencies. See the tutorials or the  "--help" output for more detailed instructions on how to use this tool.
+
+Now why on earth would anyone want to convert between binary and ASCII? One reason could be to be able to copy-paste binary files inline into an email. Pretty much any use case for uuencode/uudecode and base64 applies, and with the added bonus of optional signature validation and encryption.
+
+Technical details are that a Base77 character set is used to encode the data. Each encoded Base77 character (which is a ASCII subset) represents 6.203125 bits of original binary input data. When encoding the data stream is divided into 32 byte chunks, and each 32 bytes of input data will result in 42 characters of encoded ASCII. In case there are fewer than 32 bytes encoded this is represented internally and encoded fairly efficiently to save space. Each encoded frame of up to 42 characters includes a 4-bit CRC. It is possible to enable optional HMAC-SHA256 signature validation and optional AES-256-CTR encryption support via command line options. For more details, see the source code and in particular all the comments at the top of the file.
 
 
 # Character Set
