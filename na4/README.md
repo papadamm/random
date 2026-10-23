@@ -126,7 +126,7 @@ error: secret mismatch
 1
 ```
 
-Please note that with crypto enabled, in the above example when "error: secret mismatch" occurs there is no output. This is different from non-encrypted more. The reason is simply that the tool is unable to decrypt the data without a matching secret.
+Please note that with crypto enabled, in the above example when "error: secret mismatch" occurs there is no output. This is different from plaintext mode. The reason is simply that the tool is unable to decrypt the data without a matching secret.
 
 
 # Efficiency
