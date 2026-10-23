@@ -29,7 +29,7 @@ There is no Makefile, but with almost no dependencies building the tool is very 
 
 # Test
 
-Included is in the git repo is also the script "test.sh" that may be used to run a couple of basic tests.
+Included in the git repo is also the script "test.sh" that may be used to run a couple of basic tests.
 
 
 # Help
