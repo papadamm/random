@@ -1,39 +1,11 @@
 # na4 (base77 encoder/decode tool with checksum and crypto support)
 
-The tool "na4" is used to convert data between ASCII and binary formats. It could be seen as a more modern version of uuencode/uudecode or as an alternative to base64 encoding. Feature wise it not only encodes and decodes, it also adds checksum support for robustness, optional signature validation to prevent data stream tampering as well as optional encryption. All this while encoding rather efficiently and not adding any extra dependencies. See the tutorials or the  "--help" output for more detailed instructions on how to use this tool.
+The tool "na4" is used to convert data between ASCII and binary formats. It could be seen as a more modern version of uuencode/uudecode or as an alternative to base64 encoding. Feature wise it not only encodes and decodes, it also adds checksum support for robustness, optional signature validation to prevent data stream tampering as well as optional encryption. All this while encoding rather efficiently and not adding any extra dependencies. See the tutorials or the  "--help" output for more detailed usage instructions.
+
+
+# Use Case
 
 Now why on earth would anyone want to convert between binary and ASCII? One reason could be to be able to copy-paste binary files inline into an email. Pretty much any use case for uuencode/uudecode and base64 applies, and with the added bonus of optional signature validation and encryption.
-
-Technical details are that a Base77 character set is used to encode the data. Each encoded Base77 character (which is a ASCII subset) represents 6.203125 bits of original binary input data. When encoding the data stream is divided into 32 byte chunks, and each 32 bytes of input data will result in 42 characters of encoded ASCII. In case there are fewer than 32 bytes encoded this is represented internally and encoded fairly efficiently to save space. Each encoded frame of up to 42 characters includes a 4-bit CRC. It is possible to enable optional HMAC-SHA256 signature validation and optional AES-256-CTR encryption support via command line options. For more details, see the source code and in particular all the comments at the top of the file.
-
-
-# Character Set
-
-The source code is rather well documented and contains the following comments:
-```console
-/* the character set is the same as the 1654.c base54 and base16 combined    */
-/* but extended to be case sensitive and with the '*' character added:       */
-/*                                                                           */
-/* 0123456789                                                                */
-/* ABCDEFGHIJKLMNOPQRSTUVWXYZ                                                */
-/* abcdefghijklmnopqrstuvwxyz                                                */
-/* (),-.<>@[]^_{}*                                                           */
-/*                                                                           */
-```
-An encoded single ASCII character is either in the above Base77 set or out of scope.
-
-
-# Build
-
-There is no Makefile, but with almost no dependencies building the tool is very simple:
-```console
-% gcc -Wall -o na4 na4.c
-```
-
-
-# Test
-
-Included in the git repo is also the script "test.sh" that may be used to run a couple of basic tests.
 
 
 # Help
@@ -92,29 +64,6 @@ hello again%
 ```
 
 
-# Efficiency
-
-Compare encoding efficiency of base77 with base64 like this:
-```console
-% seq 539 | wc -c
-    2048
-% seq 539 | uuencode -m - | wc -c 
-    2792
-% seq 539 | ./na4 | wc -c  
-    2688
-% seq 539 | ./na4 -s 0 | wc -c
-warning: using potentially unsafe 0-byte secret
-    2736
-% ( echo -n X; seq 539 ) | wc -c 
-    2049
-% ( echo -n X; seq 539 ) | ./na4 -s 1 | wc -c
-    2736
-% ( echo -n X; seq 539 ) | ./na4 -s 1 -e | wc -c
-    2765
-```
-As can be seen above comparing uudecode and the last example with encryption enabled, na4 with both SHA256 and AES-CTR support enabled is using less space than regular Base64.
-
-
 # Signature
 
 Using the HMAC-SHA256 checksum feature in "naive mode":
@@ -156,7 +105,9 @@ i en laxask%
 1
 ```
 
-Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream (it is assumed to be kept private) then a correct SHA256 sum indicates that the encoded data has not been tampered with. When for instance "sju laxar " is used as secret then the SHA256 calculation will as indicate mismatch and the exit value is set accordingly. Please note that in plaintext mode with the "-s" option the data will be decoded and output on stdout regardless of the result of the SHA256 calculation.
+Above the secret "sex laxar " is shared by the encoder and the decoder. When the secret is not included in the data stream (it is assumed to be kept private) then a correct SHA256 sum indicates that the encoded data has not been tampered with. When for instance "sju laxar " is used as secret then the SHA256 calculation will as indicate mismatch and the exit value is set accordingly.
+
+Please note that in plaintext mode with the "-s" option the data will be decoded and output on stdout regardless of the result of the SHA256 calculation.
 
 
 # Crypto
@@ -175,10 +126,69 @@ error: secret mismatch
 1
 ```
 
+Please note that with crypto enabled, in the above example when "error: secret mismatch" occurs there is no output. This is different from non-encrypted more. The reason is simply that the tool is unable to decrypt the data without a matching secret.
+
+
+# Efficiency
+
+Compare encoding efficiency of base77 with base64 like this:
+```console
+% seq 539 | wc -c
+    2048
+% seq 539 | uuencode -m - | wc -c 
+    2792
+% seq 539 | ./na4 | wc -c  
+    2688
+% seq 539 | ./na4 -s 0 | wc -c
+warning: using potentially unsafe 0-byte secret
+    2736
+% ( echo -n X; seq 539 ) | wc -c 
+    2049
+% ( echo -n X; seq 539 ) | ./na4 -s 1 | wc -c
+    2736
+% ( echo -n X; seq 539 ) | ./na4 -s 1 -e | wc -c
+    2765
+```
+As can be seen above comparing uudecode and the last example with encryption enabled, na4 with both SHA256 and AES-CTR support enabled is using less space than regular Base64.
+
 
 # Note
 
 The utility follows standard Unix philosophy where lack of error message means success. As usual the exit value may be used to check if the operation was successful or not.
+
+
+# Technical Details
+
+A Base77 character set is used to encode the data. Each encoded Base77 character (which is a ASCII subset) represents 6.203125 bits of original binary input data. When encoding the data stream is divided into 32 byte chunks, and each 32 bytes of input data will result in 42 characters of encoded ASCII. In case there are fewer than 32 bytes encoded this is represented internally and encoded fairly efficiently to save space. Each encoded frame of up to 42 characters includes a 4-bit CRC. It is possible to enable optional HMAC-SHA256 signature validation and optional AES-256-CTR encryption support via command line options. For more details, see the source code and in particular all the comments at the top of the file.
+
+
+# Character Set
+
+The source code is rather well documented and contains the following comments:
+```console
+/* the character set is the same as the 1654.c base54 and base16 combined    */
+/* but extended to be case sensitive and with the '*' character added:       */
+/*                                                                           */
+/* 0123456789                                                                */
+/* ABCDEFGHIJKLMNOPQRSTUVWXYZ                                                */
+/* abcdefghijklmnopqrstuvwxyz                                                */
+/* (),-.<>@[]^_{}*                                                           */
+/*                                                                           */
+```
+An encoded single ASCII character is either in the above Base77 set or out of scope.
+
+
+# Build
+
+There is no Makefile, but with almost no dependencies building the tool is very simple:
+```console
+% gcc -Wall -o na4 na4.c
+```
+
+
+# Test
+
+Included in the git repo is also the script "test.sh" that may be used to run a couple of basic tests.
 
 
 # Final Note
