@@ -50,7 +50,8 @@ do
       BITS=`echo "$DOUBLESPACE" | cut -d "#" -f 1`
       NBITS=`echo $BITS | tr -d "[:space:]" | wc -c`
       if [ $NBITS -eq $BITWIDTH ]; then
-        echo $mn $BITS
+        COMMENT=`echo "$line" | sed "s/${mn}/#/g" | cut -d "#" -f 2-`
+        echo $mn $BITS '#' $mn $COMMENT
       fi
     fi
   done

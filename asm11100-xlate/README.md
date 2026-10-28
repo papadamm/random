@@ -11,7 +11,7 @@ As an example, if you want to run this script to look for COMF then try:
 % ./asm11100-xlate.sh -f ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt -b 12 COMF
 ./asm11100-xlate.sh: using file ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt
 ./asm11100-xlate.sh: using bitwidth 12
-COMF 0010 01df ffff
+COMF 00 1001 dfff ffff # COMF f,d Complement f
 ```
 
 Congratulations, you are now aware of the "Complement f" instruction format.
