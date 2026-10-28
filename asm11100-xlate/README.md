@@ -1,19 +1,29 @@
-# asm11100-xlate (vintate text processing script)
+# asm11100-xlate (vintage text processing script)
 
 In case you happen to have the file ASM11100.ZIP from the "PicBook 2" floppy,
 (It is a ZIP file dated June 6 1995 with the MSDOS software MPASM Version 1.11)
-There is a file "usrguide.txt" which contains instruction information for
+there is a file "usrguide.txt" which contains instruction information for
 MCUs such as PIC16C5X, PIC16CXX and PIC17CXX. There seems to be no copyright
 information, but it can be assumed that the files were created by Microchip.
 
-As an example, if you want to run this script to look for MULWF then try:
+As an example, if you want to run this script to look for COMF then try:
+```console
+% ./asm11100-xlate.sh -f ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt -b 12 COMF
+./asm11100-xlate.sh: using file ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt
+./asm11100-xlate.sh: using bitwidth 12
+COMF 0010 01df ffff
+```
+
+Congratulations, you are now aware of the "Complement f" instruction format.
+
+Alternatively, if you want to look for the 16-bit instruction MULWF then try:
 ```console
 % ./asm11100-xlate.sh -f ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt -b 16 MULWF  
 ./asm11100-xlate.sh: using file ~/picbook2-floppy/ASM11100.ZIP-unpack/usrguide.txt
 ./asm11100-xlate.sh: using bitwidth 16
 ./asm11100-xlate.sh: WARNING: unable to find MULWF
 ```
-Unfortunately there seems to be no support for the MULWF instruction on PIC18F.
+Unfortunately there seems to be no support for the MULWF instruction.
 
 As a reference the file usrguide.txt comes with the following information:
 ```console
