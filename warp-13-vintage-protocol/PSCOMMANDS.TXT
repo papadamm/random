@@ -1,0 +1,251 @@
+
+This is a summary of the Picstart Plus (Warp-13) protocol known as of
+July, 2004. This information is the result of tests performed by Andrew
+Pines, Gabor Kiss, and Jeff Post; it is believed to be accurate, but
+there are no guarantees.
+
+-> shows data from the computer to the PS+/Warp-13.
+<- shows data from the PS+/Warp-13 to the computer.
+
+-------------------------------------------------------------------------------
+Picstart Plus commands in numerical order:
+(Only those with a name, eg CMD_BLANK_CHECK, are used by picp)
+
+-------------------------------------------------------------------------------
+CMD_BLANK_CHECK		0x42	// 'B' blank check
+-------------------------------------------------------------------------------
+0x42			->	Blank check full
+			<-	0x42
+			<-	status
+
+
+-------------------------------------------------------------------------------
+0x43			->	Diagnostics
+			<-	0xdd
+subcode			->
+			<-	echo
+
+
+-------------------------------------------------------------------------------
+0x44			->	Blank check partial
+			<-	0x44
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_PGM		0x51	// 'Q' write program memory
+-------------------------------------------------------------------------------
+0x51			->	Write program
+			<-	0x51
+word to write		->
+			<-	word read back
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_READ_PGM		0x54	// 'T' read program memory
+
+-------------------------------------------------------------------------------
+0x54			->	Read program
+			<-	0x54
+			<-	word read
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_READ_OSC		0x63	// 'c' read oscillator calibration memory
+-------------------------------------------------------------------------------
+0x63			->	Read calibration values
+			<-	0x63
+			<-	word read
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_READ_DATA		0x64	// 'd' read data (EEPROM) memory
+-------------------------------------------------------------------------------
+0x64			->	Read data
+			<-	0x64
+			<-	byte read
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_READ_ID		0x65	// 'e' read ID locations
+-------------------------------------------------------------------------------
+0x65			->	Read ID
+			<-	0x65
+			<-	word read
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_READ_CFG		0x66	// 'f' request configuration bits
+-------------------------------------------------------------------------------
+0x66			->	Read config
+			<-	0x66
+			<-	word read
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_CFG		0x67	// 'g' write configuration bits
+-------------------------------------------------------------------------------
+0x67			->	Write config
+			<-	0x67
+word to write		->
+			<-	each word echoed back
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_ID		0x68	// 'h' write ID locations
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+0x68			->	Write ID
+			<-	0x68
+word to write		->
+			<-	word read back
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_DATA		0x69	// 'i' write data memory
+-------------------------------------------------------------------------------
+0x69			->	Write data
+			<-	0x69
+byte to write		->
+			<-	byte read back
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_CFG_WORD	0x70	// 'p' write one configuration word (18xxx devices)
+-------------------------------------------------------------------------------
+0x70			->	Write one config word
+			<-	0x70
+word to write		->
+			<-	word read back
+			<-	status
+(For 18xxx chips only. Must be preceeded by 'set range'.)
+
+
+-------------------------------------------------------------------------------
+CMD_WRITE_OSC		0x71	// 'q' write oscillator calibration memory
+-------------------------------------------------------------------------------
+0x71			->	Write calibration values
+			<-	0x71
+word to write		->
+			<-	word read back
+			...
+			<-	status
+
+
+-------------------------------------------------------------------------------
+0x80			->	Get processor info length
+			<-	0x80
+			<-	0x2c (44)
+
+
+-------------------------------------------------------------------------------
+CMD_LOAD_INFO		0x81	// send processor-specific info
+-------------------------------------------------------------------------------
+0x81			->	Load processor info
+			<-	0x81
+44 bytes		->
+chksum			->
+			<-	status
+
+NOTE: PS+ firmware 4.30.04 expects 23 bytes data plus checksum
+
+
+-------------------------------------------------------------------------------
+CMD_LOAD_EXT_INFO	0x82	// send more processor-specific info
+-------------------------------------------------------------------------------
+0x82			->	Load extended config masks
+			<-	0x82
+8+8 words		->
+chksum			->
+			<-	status
+
+NOTE: PS+ firmware 4.30.04 expects 6 bytes plus checksum
+
+
+-------------------------------------------------------------------------------
+CMD_REQUEST_MODEL	0x88	// request programmer model
+-------------------------------------------------------------------------------
+0x88			->	Ping
+			<-	0xab	response identifying PS+ (or Warp-13)
+
+
+-------------------------------------------------------------------------------
+CMD_REQUEST_VERSION	0x8d	// request firmware version
+-------------------------------------------------------------------------------
+0x8d			->	Get version
+			<-	0x8d
+			<-	major
+			<-	middle
+			<-	minor
+
+
+-------------------------------------------------------------------------------
+CMD_SET_ADDR		0x8e	// set address range (start address, size)
+-------------------------------------------------------------------------------
+0x8e			->	Set range
+			<-	0x8e
+5 bytes			->	send each byte
+			<-	each byte echoed
+			...
+
+
+-------------------------------------------------------------------------------
+CMD_ERASE_FLASH		0x8f	// send erase flash device command
+-------------------------------------------------------------------------------
+0x8f			->	Erase
+			<-	0x8f
+			<-	status
+
+
+-------------------------------------------------------------------------------
+0x90			->	Compute program checksum
+			<-	0x90
+			<-	checksum_h
+			<-	checksum_l
+			<-	status
+-------------------------------------------------------------------------------
+0x91			->	Compute config checksum
+			<-	0x91
+			<-	checksum_h
+			<-	checksum_l
+			<-	status
+-------------------------------------------------------------------------------
+0x92			->	Compute ID checksum
+			<-	0x92
+			<-	checksum_h
+			<-	checksum_l
+			<-	status
+-------------------------------------------------------------------------------
+0x93			->	Compute data checksum
+			<-	0x93
+			<-	checksum_h
+			<-	checksum_l
+			<-	status
+-------------------------------------------------------------------------------
+0x94			->	Compute cal checksum
+			<-	0x94
+			<-	checksum_h
+			<-	checksum_l
+			<-	status
+
+
+-------------------------------------------------------------------------------
+
