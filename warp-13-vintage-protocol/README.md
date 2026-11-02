@@ -1,6 +1,6 @@
 # warp-13-vintage-protocol
 
-The Microchip PICSTART Plus (Copyright (C) 2004 Microchip Technology Inc.) is a device to program Microchip PIC MCUs. Mine is a beige box with a ZIP socket, and has an upside-down RS-232 port and a barrel jack for a 9V power supply.
+The Microchip PICSTART Plus (Copyright (C) 2004 Microchip Technology Inc.) is a device to program Microchip PIC MCUs. Mine is a beige box with a ZIF socket, and has an upside-down RS-232 port and a barrel jack for a 9V power supply.
 
 Historically the software MPLAB IDE was provided by Microchip. Over time open source community members developed an alternative piece of software, a CLI utility with the name picp licensed under the GPL.
 
