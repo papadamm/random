@@ -1,0 +1,383 @@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/Makefile vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/Makefile
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/Makefile	2026-11-09 13:48:15.254494492 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/Makefile	2026-11-09 13:14:20.578524064 +0100
+@@ -5,7 +5,7 @@
+ CFLAGS := $(shell $(HL) get-cflags) $(shell $(HL) get-extra-flags)
+ ASMFLAGS := $(shell $(HL) get-asmflags)
+ LDFLAGS := $(shell $(HL) get-ldflags)
+-OBJ := main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o
++OBJ := rtt/rtt0.o rtt/rtt1.o rtt/rtt2.o main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o gpio-seq-i2c.o
+ 
+ %.o: %.S
+ 	$(CROSS_COMPILE)gcc $(CFLAGS) -E $< | $(CROSS_COMPILE)as $(ASMFLAGS) - -o $@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/gpio-seq.h vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/gpio-seq.h
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/gpio-seq.h	2026-11-09 13:48:15.260153123 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/gpio-seq.h	2026-11-09 11:01:30.170384374 +0100
+@@ -2,7 +2,7 @@
+ #define __GPIO_SEQ_H__
+ 
+ // system wide compile time limitations for the sequencer
+-#define GPIO_SEQ_MAX_OPC 8
++#define GPIO_SEQ_MAX_OPC 64
+ #define GPIO_SEQ_MAX_PINS 4
+ #define GPIO_SEQ_MAX_DATA_IN 8
+ #define GPIO_SEQ_MAX_DATA_OUT 8
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/main.c vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/main.c
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/main.c	2026-11-09 13:48:15.264600465 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v4/main.c	2026-11-09 20:41:37.019949500 +0100
+@@ -1,6 +1,7 @@
+ #include <stdint.h>
+ 
+ #include "gpio.h"
++#include "rtt/rtt.h"
+ 
+ #ifdef SEEEDUINO_NANO
+ #define LED_GPIO_PIN GPIO_ATMEGA328(GPIO_PORTB, 5)
+@@ -81,8 +82,338 @@
+   }
+ }
+ 
++#define PIN_SDA GPIO_STM32H7(GPIOD_PORT, 14) // FMU_CH5
++#define PIN_SCL GPIO_STM32H7(GPIOD_PORT, 15) // FMU_CH6
++
++void i2c_write(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++               uint8_t device_address, uint8_t *tx_buf, unsigned int tx_len);
++
++void i2c_read(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++              uint8_t device_address, uint8_t *rx_buf, unsigned int rx_len);
++
++void i2c_wr8(uint16_t addr, uint8_t data)
++{
++  uint8_t buf[3] = {};
++
++  buf[0] = addr >> 8;
++  buf[1] = addr & 0xff;
++  buf[2] = data;
++
++  i2c_write(PIN_SCL, PIN_SDA, 0x52, buf, sizeof(buf));
++}
++
++void i2c_wr16(uint16_t addr, uint16_t data)
++{
++  uint8_t buf[4] = {};
++
++  buf[0] = addr >> 8;
++  buf[1] = addr & 0xff;
++  buf[2] = data >> 8;
++  buf[3] = data & 0xff;
++
++  i2c_write(PIN_SCL, PIN_SDA, 0x52, buf, sizeof(buf));
++}
++
++void i2c_rd(uint16_t addr, uint8_t *rx_buf, int rx_buf_len)
++{
++  uint8_t buf[2] = {};
++
++  buf[0] = addr >> 8;
++  buf[1] = addr & 0xff;
++
++  i2c_write(PIN_SCL, PIN_SDA, 0x52, buf, sizeof(buf));
++  i2c_read(PIN_SCL, PIN_SDA, 0x53, rx_buf, rx_buf_len);
++}
++
++uint8_t i2c_rd8(uint16_t addr)
++{
++  uint8_t data[1] = {};
++  
++  i2c_rd(addr, &data[0], sizeof(data));
++
++  return data[0];
++}
++
++uint16_t i2c_rd16(uint16_t addr)
++{
++  uint8_t data[2] = {};
++  
++  i2c_rd(addr, &data[0], sizeof(data));
++
++  return (data[0] << 8) | data[1];
++}
++
++typedef struct {
++  uint16_t addr;
++  uint8_t data;
++} i2c_access_t;
++
++void i2c_access(i2c_access_t *seq)
++{
++  i2c_access_t *s;
++
++  for (s = seq; s && s->addr; s++) {
++    i2c_wr8(s->addr, s->data);
++  }
++}
++
++i2c_access_t setup[] = { { 0x24, 0x0a }, { 0x25, 0x00 }, { 0x31, 0x02 },
++			 { 0x36, 0x08 }, { 0x37, 0x10 }, { 0x39, 0x01 },
++			 { 0x3e, 0xff }, { 0x3f, 0x00 }, { 0x40, 0x02 },
++
++			 { 0x50, 0x00 }, { 0x51, 0x00 },
++			 { 0x52, 0x00 }, { 0x53, 0x00 }, { 0x57, 0x38 },
++			 { 0x64, (360 >> 8) }, { 0x65, 360 & 0xff },
++			 { 0x66, (192 >> 8) }, { 0x67, 192 & 0xff },
++			 { 0x71, 0x01 }, { 0x7c, 0x01 }, { 0x7e, 0x02 },
++			 { 0x82, 0x00 }, { 0x77, 0x01 },
++			 { 0x81, 0x8b },
++			 { 0x54, ((200 << 8) >> 8) },
++			 { 0x55, ((200 << 8) & 0xFF) },
++			 { 0x4d, 0x02 },
++			 /* END */ { 0x00 } };
++
++i2c_access_t distance_mode_long[] = { { 0x60, 0x0f }, { 0x63, 0x0d },
++				      { 0x69, 0xb8 },
++				      { 0x78, 0x0f }, { 0x79, 0x0d },
++				      { 0x7a, 14 }, { 0x7b, 14 },
++				      /* END */ { 0x00 } };
++
++uint32_t calc_macro_period(uint16_t vcsel_reg)
++{
++  uint32_t pll_period;
++  uint8_t vcsel_period;
++  uint32_t tmp;
++
++  pll_period = (1 << 30) / i2c_rd16(0x0006); // fast_osc;
++  vcsel_period = (i2c_rd16(vcsel_reg) + 1) << 1;
++  tmp = (pll_period * 2304) >> 6;
++  
++  return (tmp * vcsel_period) >> 6;
++}
++
++uint32_t us2mclk(uint16_t timeout_us, uint16_t macro_period_us)
++{
++  return ((timeout_us << 12) + (macro_period_us >> 1)) / macro_period_us;
++}
++
++uint16_t encode_timeout(uint32_t timeout_mclks)
++{
++  uint32_t ls_byte = 0;
++  uint16_t ms_byte = 0;
++
++  if (timeout_mclks > 0)
++  {
++    ls_byte = timeout_mclks - 1;
++
++    while ((ls_byte & 0xFFFFFF00) > 0)
++    {
++      ls_byte >>= 1;
++      ms_byte++;
++    }
++
++    return (ms_byte << 8) | (ls_byte & 0xFF);
++  }
++
++  return 0;
++}
++
++static void update_manual_spads(uint16_t peak_signal_count_rate,
++				uint16_t ambient_count_rate,
++				uint16_t spad_count,
++				uint16_t target_rate)
++{
++  uint16_t spads = 0x8000; // default mid-point
++#if 0  
++  uint32_t tmp, rate_per_spad;
++  
++  if (spad_count) {
++    tmp = peak_signal_count_rate + ambient_count_rate;
++    if (tmp > 0xffff) {
++      tmp = 0xffff;
++    }
++    rate_per_spad = (tmp << 16) / spad_count;
++
++    if (rate_per_spad != 0) {
++      tmp = (target_rate << 16) / rate_per_spad;
++      if (tmp > 0xffff) {
++	tmp = 0xffff;
++      }
++      spads = tmp;
++    }
++  }
++#endif  
++  i2c_wr16(0x54, spads); // dss cfg manual effective spads select
++}
++
++static int count_rate_scale(uint8_t hi, uint8_t lo)
++{
++  uint16_t n = (hi << 8) | lo;
++
++  return n >> 7;
++}
++
++static int count_rate(uint8_t hi, uint8_t lo)
++{
++  return (hi << 8) | lo;
++}
++
++static void setup_manual_calibration(void)
++{
++  uint8_t saved_vhv_cfg_init = i2c_rd8(0x0b);
++  uint8_t saved_vhv_cfg_timeout = i2c_rd8(0x08);
++
++  i2c_wr8(0x0b, saved_vhv_cfg_init & 0x7f);
++  i2c_wr8(0x08, (saved_vhv_cfg_timeout & 0x03) + (3 << 2));
++
++  i2c_wr8(0x4d, 0x01);
++  i2c_wr8(0x47, i2c_rd8(0xd8));
++}
++
++void i2c_lab(void)
++{
++  uint8_t buf[17];
++  uint16_t osc_calibrated;
++  uint8_t data[4] = {};
++  int calibrated = 0;
++
++  gpio_set_value(PIN_SCL, 1);
++  gpio_set_value(PIN_SDA, 1);
++
++  /* Open-Drain, Enable On-Chip Pull-Ups */
++  gpio_set_mode_detail(PIN_SDA, GPIO_MODE_INPUT, /* as input use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SDA, GPIO_MODE_OUTPUT, /* as output use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SCL, GPIO_MODE_INPUT, /* as input use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SCL, GPIO_MODE_OUTPUT, /* as output use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++  gpio_set_direction(PIN_SCL, GPIO_DIR_OUTPUT);
++  gpio_set_direction(PIN_SDA, GPIO_DIR_OUTPUT);
++
++  i2c_rd(0x010f, &data[0], 2); // Model ID
++  if ((data[0] != 0xea) && (data[1] != 0xcc)) {
++    SEGGER_RTT_printf(0, "Model ID mismatch 0x%02x 0x%02x\n",
++		      data[0], data[1]);
++    return;
++  }
++  SEGGER_RTT_printf(0, "Detected Model with ID 0x%02x 0x%02x\n",
++		      data[0], data[1]);
++
++  SEGGER_RTT_printf(0, "Performing Soft Reset and will wait for Firmware\n");
++
++  // perform soft reset
++  i2c_wr8(0x0000, 0x00);
++  silly_delay(100);
++  i2c_wr8(0x0000, 0x01);
++
++  do {
++    data[0] = 0;
++    i2c_rd(0x00e5, &data[0], 1); // Firmware System Status
++    silly_delay(1);
++    if ((data[0] & 0x01) == 0) {
++      SEGGER_RTT_printf(0, "Waiting for Firmware\n");
++    }
++  }
++  while((data[0] & 0x01) == 0);
++
++
++  i2c_rd(0x00de, &data[0], 2); // OSC calibrated value
++  osc_calibrated = (data[0] << 8) | data[1];
++  
++  SEGGER_RTT_printf(0, "Sending setup sequence\n");
++
++  i2c_access(setup);
++  i2c_access(distance_mode_long);
++
++  {
++    uint32_t range_config_timeout = (50000 - 4528) / 2;
++    uint32_t macro_period;
++    uint32_t phasecal_timeout;
++
++    // range cfg vcsel period a    
++    macro_period = calc_macro_period(0x60);
++
++    // phasecal cfg timeout macrop
++    phasecal_timeout = us2mclk(1000, macro_period);
++    if (phasecal_timeout > 0xff) {
++      phasecal_timeout = 0xff;
++    }
++    i2c_wr8(0x4b, phasecal_timeout);
++    
++    // mm cfg timeout macrop a
++    i2c_wr16(0x5a, encode_timeout(us2mclk(1, macro_period)));
++    // range cfg timeout macrop a
++    i2c_wr16(0x5e, encode_timeout(us2mclk(range_config_timeout, macro_period)));
++
++    // range cfg vcsel period b
++    macro_period = calc_macro_period(0x63);
++
++    // mm cfg timeout macrop b
++    i2c_wr16(0x5c, encode_timeout(us2mclk(1, macro_period)));
++    // range cfg timeout macrop b
++    i2c_wr16(0x61, encode_timeout(us2mclk(range_config_timeout, macro_period)));
++  }
++
++  i2c_wr16(0x1e, i2c_rd16(0x22) * 4);
++
++  SEGGER_RTT_printf(0, "YYY\n");
++
++  {
++    uint32_t x = osc_calibrated * 50;
++    data[0] = (x >> 24) & 0xff;
++    data[1] = (x >> 16) & 0xff;
++    data[2] = (x >> 8) & 0xff;
++    data[3] = (x >> 0) & 0xff;
++  }
++  
++  i2c_wr8(0x006c, data[0]);
++  i2c_wr8(0x006d, data[1]);
++  i2c_wr8(0x006e, data[2]);
++  i2c_wr8(0x006f, data[3]);
++
++  do {
++    uint8_t tio_hv_status = 0xff;
++    int data_ready;
++
++    i2c_wr8(0x86, 0x01); // clear interrupts
++    i2c_wr8(0x87, 0x10); // start
++    
++    i2c_rd(0x0031, &tio_hv_status, 1); // GPIO_TIO_HV status
++    data_ready = (tio_hv_status & 0x01) == 0x00;
++
++    if (data_ready) {
++      memset(buf, 0, 17);
++      i2c_rd(0x89, &buf[0], sizeof(buf)); // Read Result Range Status
++
++      SEGGER_RTT_printf(0, "data ready (%d) (%d) (%d) 0x%02x%02x\n",
++			count_rate(data[3], data[4]),
++			count_rate_scale(data[7], data[8]),
++			count_rate_scale(data[15], data[16]),
++			data[13], data[14]);
++
++      if (!calibrated) {
++	setup_manual_calibration();
++	calibrated++;
++      }
++
++      update_manual_spads(count_rate(data[15], data[16]),
++			  count_rate(data[7], data[8]),
++			  count_rate(data[3], data[4]),
++			  0x0a00);
++    }
++    silly_delay(100);
++  } while(1);
++  
++  SEGGER_RTT_printf(0, "Done\n");
++}
++
+ int main(void)
+ {
++  SEGGER_RTT_Init();
++  SEGGER_RTT_printf(0, "rtt debugging started: " __DATE__ " " __TIME__ "\n");
++  
+ #if defined(STM32H743)
+   {
+     volatile uint32_t *RCC_AHB4ENR = (void *)0x580244e0;
+@@ -107,6 +438,8 @@
+ 
+   led_setup();
+ 
++  i2c_lab();
++
+   while (1) {
+     led_on_set_value();
+     silly_delay(0x100000);
