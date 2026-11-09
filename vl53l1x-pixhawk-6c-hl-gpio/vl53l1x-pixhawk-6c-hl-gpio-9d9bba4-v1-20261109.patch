@@ -1,0 +1,75 @@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/Makefile vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/Makefile
+--- vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/Makefile	2026-11-09 11:11:59.572768663 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/Makefile	2026-11-09 11:01:45.797909216 +0100
+@@ -5,7 +5,7 @@
+ CFLAGS := $(shell $(HL) get-cflags) $(shell $(HL) get-extra-flags)
+ ASMFLAGS := $(shell $(HL) get-asmflags)
+ LDFLAGS := $(shell $(HL) get-ldflags)
+-OBJ := main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o
++OBJ := main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o gpio-seq-i2c.o
+ 
+ %.o: %.S
+ 	$(CROSS_COMPILE)gcc $(CFLAGS) -E $< | $(CROSS_COMPILE)as $(ASMFLAGS) - -o $@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/gpio-seq.h vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/gpio-seq.h
+--- vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/gpio-seq.h	2026-11-09 11:11:59.578794893 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/gpio-seq.h	2026-11-09 11:01:30.170384374 +0100
+@@ -2,7 +2,7 @@
+ #define __GPIO_SEQ_H__
+ 
+ // system wide compile time limitations for the sequencer
+-#define GPIO_SEQ_MAX_OPC 8
++#define GPIO_SEQ_MAX_OPC 64
+ #define GPIO_SEQ_MAX_PINS 4
+ #define GPIO_SEQ_MAX_DATA_IN 8
+ #define GPIO_SEQ_MAX_DATA_OUT 8
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/main.c vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/main.c
+--- vl53l1x-pixhawk-6c-hl-gpio-9d9bba4/main.c	2026-11-09 11:11:59.583721725 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-9d9bba4-v1/main.c	2026-11-09 11:01:17.237469462 +0100
+@@ -81,6 +81,16 @@
+   }
+ }
+ 
++
++#define PIN_SDA GPIO_STM32H7(GPIOD_PORT, 14) // FMU_CH5
++#define PIN_SCL GPIO_STM32H7(GPIOD_PORT, 15) // FMU_CH6
++
++void i2c_write(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++               uint8_t device_address, uint8_t *tx_buf, unsigned int tx_len);
++
++void i2c_read(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++              uint8_t device_address, uint8_t *rx_buf, unsigned int rx_len);
++
+ int main(void)
+ {
+ #if defined(STM32H743)
+@@ -107,6 +117,30 @@
+ 
+   led_setup();
+ 
++  {
++    uint8_t idx[2] = { 0x01, 0x0f }; // Model ID should read out 0xea
++    uint8_t data[1] = {};
++
++    gpio_set_value(PIN_SCL, 1);
++    gpio_set_value(PIN_SDA, 1);
++
++    /* Open-Drain, Enable On-Chip Pull-Ups */
++    gpio_set_mode_detail(PIN_SDA, GPIO_MODE_INPUT, /* as input use this mode */
++                         GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++    gpio_set_mode_detail(PIN_SDA, GPIO_MODE_OUTPUT, /* as output use this mode */
++                         GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++    gpio_set_mode_detail(PIN_SCL, GPIO_MODE_INPUT, /* as input use this mode */
++                         GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++    gpio_set_mode_detail(PIN_SCL, GPIO_MODE_OUTPUT, /* as output use this mode */
++                         GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++    gpio_set_direction(PIN_SCL, GPIO_DIR_OUTPUT);
++    gpio_set_direction(PIN_SDA, GPIO_DIR_OUTPUT);
++
++    i2c_write(PIN_SCL, PIN_SDA, 0x52, &idx[0], sizeof(idx));
++    i2c_read(PIN_SCL, PIN_SDA, 0x53, &data[0], sizeof(data));
++  }
++
++  
+   while (1) {
+     led_on_set_value();
+     silly_delay(0x100000);
