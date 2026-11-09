@@ -1,0 +1,134 @@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/Makefile vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/Makefile
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/Makefile	2026-11-09 13:48:15.254494492 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/Makefile	2026-11-09 13:14:20.578524064 +0100
+@@ -5,7 +5,7 @@
+ CFLAGS := $(shell $(HL) get-cflags) $(shell $(HL) get-extra-flags)
+ ASMFLAGS := $(shell $(HL) get-asmflags)
+ LDFLAGS := $(shell $(HL) get-ldflags)
+-OBJ := main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o
++OBJ := rtt/rtt0.o rtt/rtt1.o rtt/rtt2.o main.o gpio-ch32v.o gpio-stm32h7.o gpio-stm32f1.o gpio-seq-i2c.o
+ 
+ %.o: %.S
+ 	$(CROSS_COMPILE)gcc $(CFLAGS) -E $< | $(CROSS_COMPILE)as $(ASMFLAGS) - -o $@
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/gpio-seq.h vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/gpio-seq.h
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/gpio-seq.h	2026-11-09 13:48:15.260153123 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/gpio-seq.h	2026-11-09 11:01:30.170384374 +0100
+@@ -2,7 +2,7 @@
+ #define __GPIO_SEQ_H__
+ 
+ // system wide compile time limitations for the sequencer
+-#define GPIO_SEQ_MAX_OPC 8
++#define GPIO_SEQ_MAX_OPC 64
+ #define GPIO_SEQ_MAX_PINS 4
+ #define GPIO_SEQ_MAX_DATA_IN 8
+ #define GPIO_SEQ_MAX_DATA_OUT 8
+diff -urN vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/main.c vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/main.c
+--- vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4/main.c	2026-11-09 13:48:15.264600465 +0100
++++ vl53l1x-pixhawk-6c-hl-gpio-rtt-9d9bba4-v2/main.c	2026-11-09 13:53:10.574425358 +0100
+@@ -1,6 +1,7 @@
+ #include <stdint.h>
+ 
+ #include "gpio.h"
++#include "rtt/rtt.h"
+ 
+ #ifdef SEEEDUINO_NANO
+ #define LED_GPIO_PIN GPIO_ATMEGA328(GPIO_PORTB, 5)
+@@ -81,8 +82,89 @@
+   }
+ }
+ 
++#define PIN_SDA GPIO_STM32H7(GPIOD_PORT, 14) // FMU_CH5
++#define PIN_SCL GPIO_STM32H7(GPIOD_PORT, 15) // FMU_CH6
++
++void i2c_write(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++               uint8_t device_address, uint8_t *tx_buf, unsigned int tx_len);
++
++void i2c_read(const gpio_port_pin_t scl, const gpio_port_pin_t sda,
++              uint8_t device_address, uint8_t *rx_buf, unsigned int rx_len);
++
++void i2c_wr8(uint16_t addr, uint8_t data)
++{
++  uint8_t buf[3] = {};
++
++  buf[0] = addr >> 8;
++  buf[1] = addr & 0xff;
++  buf[2] = data;
++
++  i2c_write(PIN_SCL, PIN_SDA, 0x52, buf, sizeof(buf));
++}
++
++void i2c_rd(uint16_t addr, uint8_t *rx_buf, int rx_buf_len)
++{
++  uint8_t buf[2] = {};
++
++  buf[0] = addr >> 8;
++  buf[1] = addr & 0xff;
++
++  i2c_write(PIN_SCL, PIN_SDA, 0x52, buf, sizeof(buf));
++  i2c_read(PIN_SCL, PIN_SDA, 0x53, rx_buf, rx_buf_len);
++}
++
++void i2c_lab(void)
++{
++  uint8_t data[2] = {};
++
++  gpio_set_value(PIN_SCL, 1);
++  gpio_set_value(PIN_SDA, 1);
++
++  /* Open-Drain, Enable On-Chip Pull-Ups */
++  gpio_set_mode_detail(PIN_SDA, GPIO_MODE_INPUT, /* as input use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SDA, GPIO_MODE_OUTPUT, /* as output use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SCL, GPIO_MODE_INPUT, /* as input use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x00, 0x00, 0x00, 0x01));
++  gpio_set_mode_detail(PIN_SCL, GPIO_MODE_OUTPUT, /* as output use this mode */
++                       GPIO_MODE_DETAIL_STM32H7(0x01, 0x01, 0x00, 0x01));
++  gpio_set_direction(PIN_SCL, GPIO_DIR_OUTPUT);
++  gpio_set_direction(PIN_SDA, GPIO_DIR_OUTPUT);
++
++  i2c_rd(0x010f, &data[0], sizeof(data)); // Model ID
++  if ((data[0] != 0xea) && (data[1] != 0xcc)) {
++    SEGGER_RTT_printf(0, "Model ID mismatch 0x%02x 0x%02x\n",
++		      data[0], data[1]);
++    return;
++  }
++  SEGGER_RTT_printf(0, "Detected Model with ID 0x%02x 0x%02x\n",
++		      data[0], data[1]);
++
++  SEGGER_RTT_printf(0, "Performing Soft Reset and will wait for Firmware\n");
++
++  i2c_wr8(0x0000, 0x00); // Soft Reset
++  silly_delay(100);
++  i2c_wr8(0x0000, 0x01); // Soft Reset
++
++  do {
++    data[0] = 0;
++    i2c_rd(0x00e5, &data[0], sizeof(data)); // Firmware System Status
++    silly_delay(1);
++    if ((data[0] & 0x01) == 0) {
++      SEGGER_RTT_printf(0, "Waiting for Firmware\n");
++    }
++  }
++  while((data[0] & 0x01) == 0);
++
++  SEGGER_RTT_printf(0, "Done\n");
++}
++
+ int main(void)
+ {
++  SEGGER_RTT_Init();
++  SEGGER_RTT_printf(0, "rtt debugging started: " __DATE__ " " __TIME__ "\n");
++  
+ #if defined(STM32H743)
+   {
+     volatile uint32_t *RCC_AHB4ENR = (void *)0x580244e0;
+@@ -107,6 +189,8 @@
+ 
+   led_setup();
+ 
++  i2c_lab();
++
+   while (1) {
+     led_on_set_value();
+     silly_delay(0x100000);
