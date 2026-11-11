@@ -6,3 +6,4 @@
 - rp2040-boot2-xip-test - Test code for rp2040 to enable XIP and boot past boot2 loader
 - u-boot-gr-peach - Work around reset issues on the GR-Peach with U-Boot
 - uart-1654-standalone - Example to incorporate 1654 stand alone in a micro controller
+- ssd1306-hex-display-rtt-v5 - HL GPIO sequencer test code
