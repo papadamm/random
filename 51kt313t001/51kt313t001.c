@@ -33,7 +33,6 @@ static void empty_rx_data(int fd)
 {
   char buf[1];
   int status;
-  uint32_t flags;
 
   while (1) {
     status = read(fd, &buf[0], 1);
@@ -102,21 +101,19 @@ static int modem_io(int fd, uint8_t *buf, int nbytes,
 
 static int send_str(int fd, char *str)
 {
-  return modem_io(fd, (uint8_t *)str, strlen(str), 3, modem_io_write);
+  return modem_io(fd, (uint8_t *)str, strlen(str), 1, modem_io_write);
 }
 
 static int recv_str(int fd, char *expected_str)
 {
   uint8_t buf[80] = {};
   int n = strlen(expected_str);
-  int status;
 
   if (n > (sizeof(buf) - 1)) {
     return -1;
   }
 
-  status = modem_io(fd, (uint8_t *)&buf[0], sizeof(buf), 2, modem_io_read);
-
+  modem_io(fd, (uint8_t *)&buf[0], sizeof(buf), 1, modem_io_read);
   if (strcmp((char *)&buf[0], expected_str) != 0) {
 #if 0    
     fprintf(stderr, "receive data mismatch '%s' vs '%s'\n",
@@ -139,29 +136,45 @@ static int release_modem(int fd)
   return 0;
 }
 
-static int modem_io_probe(int fd, uint8_t *buf, int nbytes)
+static int modem_io_probe_echo(int fd, uint8_t *buf, int nbytes)
 {
-  int status;
-  
   empty_rx_data(fd);
 
-  if (send_str(fd, "+++") != 0) {
-    return -1;
-  }
-
-  if (recv_str(fd, "OK\r\n") != 0) {
-    release_modem(fd); /* release and try again */
+  if (send_str(fd, "+") != 0) {
     return 0;
   }
 
+  if (recv_str(fd, "+") != 0) {
+    return 0;
+  }
+
+  /* success */
+  buf[0] = 'Y';
+  return 1;
+}
+
+static int modem_io_probe(int fd, uint8_t *buf, int nbytes)
+{
+  empty_rx_data(fd);
+
+  if (send_str(fd, "+++") != 0) {
+    return 0;
+  }
+
+  if (recv_str(fd, "OK\r\n") != 0) {
+    return 0;
+  }
+
+  /* success */
+  buf[0] = 'Y';
   return 1;
 }
 
 static int try_access_modem(int fd, int bps)
 {
   struct termios t = {};
-  int hwflow = 1;
-  int status;
+  uint8_t buf[1];
+  int m;
 
   if (tcgetattr(fd, &t) != 0) {
     fprintf(stderr, "unable to use tcgetattr()\n");
@@ -189,12 +202,31 @@ static int try_access_modem(int fd, int bps)
     return -1;
   }
 
-  /* send +++, retry after ATZ if needed, max 3 seconds */
-  if (modem_io(fd, (void *)"dummy", 1, 3, modem_io_probe) != 0) {
-    return -1;
+  for (m = 0; m < 3; m++) {
+    /* send +, see if we get the same char echoed back */
+    buf[0] = 'N';
+    modem_io_probe_echo(fd, &buf[0], 1);
+    if (buf[0] != 'Y') {
+      goto enter_mode; /* no response, try entering mode */
+    }
+
+    /* invalid response, guess that we might need to exit AT Command mode */
+    send_str(fd, "\n");
+    empty_rx_data(fd);
+    release_modem(fd); /* exit AT Command mode */
+
+  enter_mode:
+    /* again send +++, see if we get OK back */
+    buf[0] = 'N';
+    modem_io_probe(fd, &buf[0], 1);
+    if (buf[0] == 'Y') {
+      return 0; /* success, we have entered AT Command mode */
+    }
+
+    /* try again if needed */
   }
 
-  return 0;
+  return -1;
 }
 
 static int open_probe_device(char *tty_device,
@@ -231,52 +263,59 @@ static int open_probe_device(char *tty_device,
   return -1;
 }
 
-static int modem_io_read_output(int fd, uint8_t *buf, int nbytes)
-{
-  uint8_t ch;
-  int status;
-
-  status = read(fd, &ch, 1);
-  if (status == 1) {
-    fprintf(stdout, "%c", ch);
-  }
-  return 0;
-}
-
 static void character_io_puts(int fd, char *str)
 {
   char buf[1];
   int status;
   int m = 0;
   int tail_mode = 0;
+  int tail_idx = 0;
 
   empty_rx_data(fd);
 
   do {
     status = read(fd, &buf[0], 1);
     if (status == 1) {
-      fprintf(stdout, "%c", buf[0]);
       if (tail_mode) {
-        if (buf[0] == '\r') {
+        if (buf[0] == '\n') {
+          fprintf(stdout, " "); /* space separator between ATCMD and result */
           tail_mode++;
         }
+      }
+      if ((buf[0] != '\n') && (buf[0] != '\r')) {
+        fprintf(stdout, "%c", buf[0]);
       }
     }
 
     switch (tail_mode) {
     case 0:
-      status = write(fd, &str[m], 1);
-      if (status == 1) {
-        if (str[m] != '\0') {
+      if (str[m] != '\0') {
+        status = write(fd, &str[m], 1);
+        if (status == 1) {
           m++;
-        } else {
-          tail_mode = 1;
         }
+      } else {
+        tail_mode = 1;
       }
       break;
+
     case 3:
+      fprintf(stdout, "\n"); /* one line per command */
       fflush(stdout);
       return;
+
+    default:
+      if (tail_idx == 0) {
+        status = write(fd, "\n", 1);
+        if (status == 1) {
+          tail_idx++;
+        }
+      } else if (tail_idx == 1) {
+        status = write(fd, "\r", 1);
+        if (status == 1) {
+          tail_idx++;
+        }
+      }
     }
   } while(1);
 }
@@ -287,19 +326,32 @@ int main(int argc, char **argv)
   int fd;
   int m;
 
-  if (argc == 2) {
+  if (argc >= 2) {
     fd = open_probe_device(argv[1], AUTOPROBE_BPS_ALL, &bps);
     if (fd == -1) {
       exit(1);
     }
+#if 0
     fprintf(stdout, "%s: successful probe of %s at %d bps\n",
             argv[0], argv[1], bps);
-
-    character_io_puts(fd, "ATI\r\n");
+#endif
+    if (argc > 2) {
+      for (m = 2; m < argc; m++) {
+	character_io_puts(fd, argv[m]);
+      }
+    } else {
+      character_io_puts(fd, "ATI");
+      character_io_puts(fd, "ATS1?");
+      character_io_puts(fd, "ATS2?");
+      character_io_puts(fd, "ATS3?");
+      character_io_puts(fd, "ATS4?");
+      character_io_puts(fd, "ATS5?");
+      character_io_puts(fd, "ATS6?");
+    }
     release_modem(fd);
     close(fd);
     exit(0);
   }
-  fprintf(stderr, "%s: usage %s tty-device\n", argv[0], argv[0]);
+  fprintf(stderr, "%s: usage %s tty-device [ATCMDs]\n", argv[0], argv[0]);
   exit(0);
 }
