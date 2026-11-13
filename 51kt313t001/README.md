@@ -22,11 +22,20 @@ ATS6=0 OK
 %
 ```
 
-Save configuration in local storage:
+This is how to save configuration into local storage:
 ```console
 % ./51kt313t001 /dev/tty.usbserial-D30H6JW9 "AT&W"
 AT&W OK
 %
 ```
 
+It is also possible to query/configure the peer over the radio link:
+```console
+% ./51kt313t001 /dev/tty.usbserial-D30H7HMT "RTS3?"
+RTS3? 25
+```
+The above example displays the network id of the connected peer.
+
 Compiles and executes on Mac OS X and/or Linux.
+The probing is somewhat time consuming but seems stable enough.
+Only single line AT commands are supported, the output from ATI5/RTI5 will be truncated. 
