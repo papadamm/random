@@ -1,5 +1,6 @@
 # Random hacks
 - 1654 - Base16 and Base54 tool
+- 51kt313t001 - Radio configuration utility
 - dtmf-buzzer-ch32v003 - DTMF tone generator with Delta-Sigma software DAC in RISC-V assembly
 - na4 - Base77 tool with checksum and encryption support (CRC4, SHA256, AES-CTR)
 - objdump-vintage-msdos-com - Make use of objdump to disassemble vintage MSDOS dot COM files
