@@ -145,6 +145,16 @@ run_tests_empty()
   /bin/echo -n "# 7B. Decode encoded empty data/secret (no output) "
   test -z "$decoded"
   echo_pass_fail_exit $? "$decoded"
+
+  /bin/echo -n "# 8. Encode empty data + secret with -s 1 (should fail) "
+  encoded=`/bin/echo -n "" | ./na4 -s 1 2> /dev/null`
+  test $? -ne 0
+  echo_pass_fail_exit $? $?
+
+  /bin/echo -n "# 8. Decode empty data + secret with -s 1 (should fail) "
+  encoded=`/bin/echo -n "" | ./na4 -d -s 1 2> /dev/null`
+  test $? -ne 0
+  echo_pass_fail_exit $? $?
 }
 
 run_tests_empty
