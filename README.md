@@ -1,4 +1,5 @@
 # Random hacks
+- 1536 - 15 <-> 36 byte Base53 encoder/decoder tool
 - 1654 - Base16 and Base54 tool
 - 51kt313t001 - Radio configuration utility
 - dtmf-buzzer-ch32v003 - DTMF tone generator with Delta-Sigma software DAC in RISC-V assembly
@@ -7,6 +8,7 @@
 - rp2040-boot2-xip-test - Test code for rp2040 to enable XIP and boot past boot2 loader
 - ssd1306-hex-display-rtt-v5 - Hayley GPIO sequencer test code
 - u-boot-gr-peach - Work around reset issues on the GR-Peach with U-Boot
-- uart-1654-standalone - Example to incorporate 1654 stand alone in a micro controller
+- uart-1536-standalone - Example to incorporate 1536 standalone on ch32v003 and/or atmega328p
+- uart-1654-standalone - Example to incorporate 1654 standalone on an atmega328p microcontroller
 - vl53l1x-pixhawk-6c-hl-gpio - vl53l1x pixhawk 6c prototype patches
 - warp-13-vintage-protocol - vintage programming hardware protocol documentation
