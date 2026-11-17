@@ -4,9 +4,13 @@
 /*                                                                           */
 /* Copyright (C) 2026 Magnus Damm                                            */
 
+#ifndef __STANDALONE__
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#define __BUILD_ENCODER__
+#define __BUILD_DECODER__
+#endif
 
 char charset_1536[] = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz#";
 char char_airgap = ' '; /* white space */
@@ -37,43 +41,6 @@ struct context_1536 {
 };
 
 #define ERROR(c, m) c->err(c, m)
-
-static uint8_t bigint_mul256_div53(uint8_t *limbs, int len)
-{
-  uint8_t remainder = 0;
-  uint16_t current;
-  uint8_t divisor = 53;
-  int i;
-
-  /* Process from most-significant limb down to least-significant */
-  for (i = (len - 1); i >= 0; i--) {
-
-    /* Base is 256 (0x100) [multiply by 256 and divide by divisor] */
-    current = (remainder << 8) | limbs[i];
-    limbs[i] = (uint8_t)(current / divisor);
-    remainder = current % divisor;
-  }
-
-  return remainder;
-}
-
-static uint8_t bigint_mul53_div256(uint8_t *limbs, int len)
-{
-  uint8_t carry = 0;
-  uint16_t current;
-  int i;
-
-  /* Process from most-significant limb down to least-significant */
-  for (i = (len - 1); i >= 0; i--) {
-
-    /* Base is 53 [multiply by 53 and divide by 256] */
-    current = (carry * 53) + limbs[i];
-    limbs[i] = current >> 8;
-    carry = current & 0xff;
-  }
-
-  return carry;
-}
 
 static int bigint_process(uint8_t *r, int r_len,
                           uint8_t *limbs, int len,
@@ -106,11 +73,6 @@ static int bigint_process(uint8_t *r, int r_len,
   return -1; /* does not fit in r[] */
 }
 
-static char encode_char(uint8_t value)
-{
-  return charset_1536[value];
-}
-
 static char *__strchr(const char *s, int c)
 {
   int i;
@@ -124,19 +86,6 @@ static char *__strchr(const char *s, int c)
   return NULL;
 }
 
-static int decode_char(int ch)
-{
-  const char *str = &charset_1536[0];
-  char *found;
-
-  found = __strchr(str, ch);
-  if (found) {
-    return found - str;
-  }
-
-  return -1;
-}
-
 static int check_bottom_50(char ch)
 {
   const char *str = &charset_1536[0];
@@ -148,6 +97,54 @@ static int check_bottom_50(char ch)
   }
 
   return !((found - str) >= 50);
+}
+
+static void reverse_data(uint8_t *dst, uint8_t *src,
+                         int src_len, int expected_size)
+{
+  int i, s;
+
+  /* when encoding, the data from the bigint processing comes out aligned */
+  /* to src[0] which means that any leading zeroes are at the src[N] side. */
+  /* however as part of the frame encoding used by this software we need to */
+  /* encode the first character as baseN which means if the rest of the */
+  /* logic operates on src[0] as first character value then we need to */
+  /* reverse the bytes so any unused bits ends up towards src[0]. */
+  /* without this the src[0] data will not always allow baseN encoding */
+
+  s = expected_size - 1;
+
+  for (i = 0; i < src_len; i++) {
+    if ((s - i) >= 0) {
+      dst[i] = src[s - i];
+    }
+  }
+}
+
+static char encode_char(uint8_t value)
+{
+  return charset_1536[value];
+}
+
+#ifdef __BUILD_ENCODER__
+
+static uint8_t bigint_mul256_div53(uint8_t *limbs, int len)
+{
+  uint8_t remainder = 0;
+  uint16_t current;
+  uint8_t divisor = 53;
+  int i;
+
+  /* Process from most-significant limb down to least-significant */
+  for (i = (len - 1); i >= 0; i--) {
+
+    /* Base is 256 (0x100) [multiply by 256 and divide by divisor] */
+    current = (remainder << 8) | limbs[i];
+    limbs[i] = (uint8_t)(current / divisor);
+    remainder = current % divisor;
+  }
+
+  return remainder;
 }
 
 static void output_tail(struct context_1536 *ctx, char airgap,
@@ -172,28 +169,6 @@ static void output_tail(struct context_1536 *ctx, char airgap,
   }
 
   ctx->flush(ctx);
-}
-
-static void reverse_data(uint8_t *dst, uint8_t *src,
-                         int src_len, int expected_size)
-{
-  int i, s;
-
-  /* when encoding, the data from the bigint processing comes out aligned */
-  /* to src[0] which means that any leading zeroes are at the src[N] side. */
-  /* however as part of the frame encoding used by this software we need to */
-  /* encode the first character as baseN which means if the rest of the */
-  /* logic operates on src[0] as first character value then we need to */
-  /* reverse the bytes so any unused bits ends up towards src[0]. */
-  /* without this the src[0] data will not always allow baseN encoding */
-
-  s = expected_size - 1;
-
-  for (i = 0; i < src_len; i++) {
-    if ((s - i) >= 0) {
-      dst[i] = src[s - i];
-    }
-  }
 }
 
 static int encode_unit_frame(void *handle, uint8_t *buf, int len)
@@ -236,6 +211,82 @@ static int encode_unit_frame(void *handle, uint8_t *buf, int len)
     output_tail(ctx, char_airgap, encode_char(52), rev, 6);
   }
   return len;
+}
+
+static int encode_frame(void *handle, uint8_t *buf, int len)
+{
+  struct context_1536 *ctx = handle;
+  uint8_t zeroed_buffer[INPUT_UNIT_BUFSIZE];
+  int status;
+  int m;
+  int n = 0;
+
+  /* allow encoding a first single 15-byte frame of zero length data */
+  if (ctx->has_encoded_data && (len == 0)) {
+    return 0;
+  }
+
+  for (m = 0; m < 3; m++) {
+    if (len >= INPUT_UNIT_BUFSIZE) {
+      status = encode_unit_frame(handle, buf, INPUT_UNIT_BUFSIZE);
+      buf += INPUT_UNIT_BUFSIZE;
+      len -= INPUT_UNIT_BUFSIZE;
+    } else {
+      memset(zeroed_buffer, 0, INPUT_UNIT_BUFSIZE);
+      if (len) {
+        memcpy(zeroed_buffer, buf, len);
+      }
+      status = encode_unit_frame(handle, zeroed_buffer, len);
+      buf += len;
+      len -= len;
+    }
+
+    if (status < 0) {
+      return status;
+    } else {
+      n += status;
+    }
+  }
+
+  if (n) {
+    ctx->has_encoded_data = 1;
+  }
+
+  return n;
+}
+
+#endif /* __BUILD_ENCODER__ */
+#ifdef __BUILD_DECODER__
+
+static int decode_char(int ch)
+{
+  const char *str = &charset_1536[0];
+  char *found;
+
+  found = __strchr(str, ch);
+  if (found) {
+    return found - str;
+  }
+
+  return -1;
+}
+
+static uint8_t bigint_mul53_div256(uint8_t *limbs, int len)
+{
+  uint8_t carry = 0;
+  uint16_t current;
+  int i;
+
+  /* Process from most-significant limb down to least-significant */
+  for (i = (len - 1); i >= 0; i--) {
+
+    /* Base is 53 [multiply by 53 and divide by 256] */
+    current = (carry * 53) + limbs[i];
+    limbs[i] = current >> 8;
+    carry = current & 0xff;
+  }
+
+  return carry;
 }
 
 static int decode_unit_frame(void *handle,
@@ -301,48 +352,6 @@ static int decode_unit_frame(void *handle,
   return 7; /* number of source bytes processed */
 }
 
-static int encode_frame(void *handle, uint8_t *buf, int len)
-{
-  struct context_1536 *ctx = handle;
-  uint8_t zeroed_buffer[INPUT_UNIT_BUFSIZE];
-  int status;
-  int m;
-  int n = 0;
-
-  /* allow encoding a first single 15-byte frame of zero length data */
-  if (ctx->has_encoded_data && (len == 0)) {
-    return 0;
-  }
-
-  for (m = 0; m < 3; m++) {
-    if (len >= INPUT_UNIT_BUFSIZE) {
-      status = encode_unit_frame(handle, buf, INPUT_UNIT_BUFSIZE);
-      buf += INPUT_UNIT_BUFSIZE;
-      len -= INPUT_UNIT_BUFSIZE;
-    } else {
-      memset(zeroed_buffer, 0, INPUT_UNIT_BUFSIZE);
-      if (len) {
-        memcpy(zeroed_buffer, buf, len);
-      }
-      status = encode_unit_frame(handle, zeroed_buffer, len);
-      buf += len;
-      len -= len;
-    }
-
-    if (status < 0) {
-      return status;
-    } else {
-      n += status;
-    }
-  }
-
-  if (n) {
-    ctx->has_encoded_data = 1;
-  }
-
-  return n;
-}
-
 static int decode_frame(void *handle, uint8_t *buf, int len)
 {
   struct context_1536 *ctx = handle;
@@ -373,6 +382,8 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   ctx->flush(ctx);
   return res;
 }
+
+#endif /* __BUILD_DECODER__ */
 
 #define MAX(x,y) ((x) > (y) ? (x) : (y))
 #define MAX_BUFSIZE MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)
@@ -424,6 +435,8 @@ static int read_data(void *handle,
 
   return total_bytes;
 }
+
+#ifndef __STANDALONE__
 
 int encode_or_decode(struct context_1536 *ctx, int decode_enabled)
 {
@@ -519,3 +532,5 @@ int main(int argc, char **argv)
 
   return encode_or_decode(&ctx, decode_enabled);
 }
+
+#endif /* __STANDALONE__ */
