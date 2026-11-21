@@ -1072,7 +1072,9 @@ static int read_secret(void *handle,
 
   while (total_bytes < xfer_size) {
     n = ctx->read(ctx, &ch, 1);
-    if (n > 0) {
+    if (n <= 0) {
+      return -1; /* not enough secret bytes on stdin treated as error */
+    } else {
       m = f(handle, &ch, 1);
       if (m < 0) {
         return -1;
