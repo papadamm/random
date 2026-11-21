@@ -249,7 +249,7 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
 
     status = encode_unit_frame(handle,
                                m ? &ctx->charset_b[0] : &ctx->charset_a[0],
-                               zeroed_buffer, p ? (p + 1) : 0, m == 1);
+                               zeroed_buffer, p, m == 1);
     buf += p;
     len -= p;
 
