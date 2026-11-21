@@ -401,52 +401,68 @@ static int decode_unit_frame(void *handle,
 static int decode_frame(void *handle, uint8_t *buf, int len)
 {
   struct context_1789 *ctx = handle;
+  uint8_t buf_lacking_space[OUTPUT_BUFSIZE + 1] = {};
   uint8_t frame_a[INPUT_UNIT_BUFSIZE] = {};
   uint8_t frame_b[INPUT_UNIT_BUFSIZE] = {};
   int bytes_out_a = 0;
   int bytes_out_b = 0;
   int res_a = 0;
   int res_b = 0;
+  uint8_t *src;
+  int m, n, c;
 
   if (len == 0)
     return 0;
 
+  c = 0;
   /* skip through any white space characters when decoding */
-  if (ctx->line_wrap && __strchr(whitespace_chars, buf[0])) {
-    return 1;
+  if (ctx->line_wrap) {
+    n = 0;
+    for (m = 0; m < len; m++) {
+      if (n < OUTPUT_BUFSIZE) {
+        if (__strchr(whitespace_chars, buf[m]) == 0) {
+          buf_lacking_space[n++] = buf[m];
+        } else {
+          c++;
+        }
+      }
+    }
+    src = &buf_lacking_space[0];
+  } else {
+    src = buf;
   }
 
   /* check for "$" */
-  if (buf[0] != special_chars[0]) {
+  if (src[0] != special_chars[0]) {
     ERROR(ctx, err_decode_1st_char);
     return -1;
   }
 
-  if (buf[1] != ctx->charset_a[0]) {
+  if (src[1] != ctx->charset_a[0]) {
     ERROR(ctx, err_decode_char);
     return -1;
   }
 
   /* check for "*" */
-  if (buf[9] != special_chars[1]) {
+  if (src[9] != special_chars[1]) {
     ERROR(ctx, err_decode_char);
     return -1;
   }
 
-  if (buf[17] != ctx->charset_b[0]) {
+  if (src[17] != ctx->charset_b[0]) {
     ERROR(ctx, err_decode_char);
     return -1;
   }
 
   /* check for "#" */
-  if (buf[18] != special_chars[2]) {
+  if (src[18] != special_chars[2]) {
     ERROR(ctx, err_decode_char);
     return -1;
   }
 
   res_a = decode_unit_frame(handle, &ctx->charset_a[0],
                             frame_a, sizeof(frame_a),
-                            &buf[2], OUTPUT_UNIT_BUFSIZE,
+                            &src[2], OUTPUT_UNIT_BUFSIZE,
                             &bytes_out_a, 0);
 
   if (res_a < 0) {
@@ -455,7 +471,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
 
   res_b = decode_unit_frame(handle, &ctx->charset_b[0],
                             frame_b, sizeof(frame_b),
-                            &buf[10], OUTPUT_UNIT_BUFSIZE,
+                            &src[10], OUTPUT_UNIT_BUFSIZE,
                             &bytes_out_b, 1);
 
   if (res_b < 0) {
@@ -466,12 +482,13 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   write_data(ctx, frame_b, bytes_out_b);
   ctx->flush(ctx);
 
-  return res_a + res_b + 5;
+  return res_a + res_b + 5 + c;
 }
 
 #endif /* __BUILD_DECODER__ */
 
-#define MAX_BUFSIZE MAX(INPUT_BUFSIZE, OUTPUT_BUFSIZE)
+/* when decoding use OUTPUT_BUFSIZE *2 for worst case white space scenario */
+#define MAX_BUFSIZE MAX(INPUT_BUFSIZE, (OUTPUT_BUFSIZE * 2))
 
 static int read_data(void *handle,
                      int bufsize,
@@ -526,7 +543,7 @@ static int read_data(void *handle,
 int encode_or_decode(struct context_1789 *ctx)
 {
   if (ctx->is_decoding) {
-    return read_data(ctx, OUTPUT_BUFSIZE, decode_frame) < 0;
+    return read_data(ctx, OUTPUT_BUFSIZE * 2, decode_frame) < 0;
   } else {
     return read_data(ctx, INPUT_BUFSIZE, encode_frame) < 0;
   }
