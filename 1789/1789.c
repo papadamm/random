@@ -14,6 +14,7 @@
 
 char latin_charset[] = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz";
 char special_chars[] = "$*#";
+char whitespace_chars[] = " \t\r\n";
 
 #define INPUT_BUFSIZE 8 /* INPUT is up to 8 bytes of data per frame */
 #define OUTPUT_BUFSIZE 19 /* OUTPUT consists of 19 characters */
@@ -37,6 +38,9 @@ struct context_1789 {
   char charset_a[53];
   char charset_b[53];
   int has_encoded_data;
+  int is_decoding;
+  int line_wrap;
+  int line_wrap_cnt;
   int (*read)(struct context_1789 *, uint8_t *, int);
   int (*write)(struct context_1789 *, uint8_t *, int);
   void (*flush)(struct context_1789 *);
@@ -131,6 +135,27 @@ static char encode_char(char *charset, uint8_t value)
   return charset[value];
 }
 
+static int write_data(struct context_1789 *ctx, uint8_t *buf, int bytes)
+{
+  int m;
+
+  if (ctx->line_wrap && !ctx->is_decoding) {
+    for (m = 0; m < bytes; m++) {
+      ctx->write(ctx, &buf[m], 1);
+      ctx->line_wrap_cnt++;
+
+      if (ctx->line_wrap_cnt == ctx->line_wrap) {
+        ctx->write(ctx, (uint8_t *)"\n", 1);
+	ctx->line_wrap_cnt = 0;
+      }
+    }
+  } else {
+    ctx->write(ctx, buf, bytes);
+  }
+
+  return bytes;
+}
+
 #ifdef __BUILD_ENCODER__
 
 static uint8_t bigint_mul256_div53(uint8_t *limbs, int len)
@@ -160,20 +185,20 @@ static void output_data(struct context_1789 *ctx, char *charset, char tail,
   if (reverse) {
     for (i = len - 1; i >= 0; i--) {
       uint8_t ch = encode_char(charset, buf[i]);
-      ctx->write(ctx, &ch, 1);
+      write_data(ctx, &ch, 1);
     }
 
     if (tail) {
-      ctx->write(ctx, (void *)&tail, 1);
+      write_data(ctx, (void *)&tail, 1);
     }
   } else {
     if (tail) {
-      ctx->write(ctx, (void *)&tail, 1);
+      write_data(ctx, (void *)&tail, 1);
     }
 
     for (i = 0; i < len; i++) {
       uint8_t ch = encode_char(charset, buf[i]);
-      ctx->write(ctx, &ch, 1);
+      write_data(ctx, &ch, 1);
     }
   }
 
@@ -236,8 +261,8 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
     return 0;
   }
 
-  ctx->write(ctx, (void *)&special_chars[0], 1);
-  ctx->write(ctx, (void *)&ctx->charset_a[0], 1);
+  write_data(ctx, (void *)&special_chars[0], 1);
+  write_data(ctx, (void *)&ctx->charset_a[0], 1);
 
   for (m = 0; m < 2; m++) {
     memset(zeroed_buffer, 0, INPUT_UNIT_BUFSIZE);
@@ -259,9 +284,9 @@ static int encode_frame(void *handle, uint8_t *buf, int len)
       n += status;
     }
     if (m) {
-      ctx->write(ctx, (void *)&ctx->charset_b[0], 1);
+      write_data(ctx, (void *)&ctx->charset_b[0], 1);
     }
-    ctx->write(ctx, (void *)&special_chars[m + 1], 1);
+    write_data(ctx, (void *)&special_chars[m + 1], 1);
   }
 
   if (n) {
@@ -386,6 +411,11 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   if (len == 0)
     return 0;
 
+  /* skip through any white space characters when decoding */
+  if (ctx->line_wrap && __strchr(whitespace_chars, buf[0])) {
+    return 1;
+  }
+
   /* check for "$" */
   if (buf[0] != special_chars[0]) {
     ERROR(ctx, err_decode_1st_char);
@@ -432,8 +462,8 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return res_b;
   }
 
-  ctx->write(ctx, frame_a, bytes_out_a);
-  ctx->write(ctx, frame_b, bytes_out_b);
+  write_data(ctx, frame_a, bytes_out_a);
+  write_data(ctx, frame_b, bytes_out_b);
   ctx->flush(ctx);
 
   return res_a + res_b + 5;
@@ -493,9 +523,9 @@ static int read_data(void *handle,
 
 #ifndef __STANDALONE__
 
-int encode_or_decode(struct context_1789 *ctx, int decode_enabled)
+int encode_or_decode(struct context_1789 *ctx)
 {
-  if (decode_enabled) {
+  if (ctx->is_decoding) {
     return read_data(ctx, OUTPUT_BUFSIZE, decode_frame) < 0;
   } else {
     return read_data(ctx, INPUT_BUFSIZE, encode_frame) < 0;
@@ -505,9 +535,9 @@ int encode_or_decode(struct context_1789 *ctx, int decode_enabled)
 #define ERR_MSG(n, str) [n] = str
 
 char *err_msg[] = {
-  ERR_MSG(err_encode_1st_char, "unable to encode the first char"),
+  ERR_MSG(err_encode_1st_char, "unable to encode the first subframe char"),
   ERR_MSG(err_decode_ascii, "unable to decode ASCII data"),
-  ERR_MSG(err_decode_1st_char, "unable to decode the first char"),
+  ERR_MSG(err_decode_1st_char, "unable to decode the subframe first char"),
   ERR_MSG(err_decode_char, "unable to decode partial frame char"),
   ERR_MSG(err_buffer_failure, "buffer failure"),
   ERR_MSG(err_invalid_parameter, "invalid parameter"),
@@ -547,6 +577,7 @@ static void print_help(const char *prog_name)
   "Parameters:\n"
   "  -a character    First Base53 character for first subframe\n"
   "  -b character    First Base53 character for last subframe\n"
+  "  -c cols         Line wrap output every <cols> chars, default off\n"
   "\n"
   "Informational:\n"
   "  -h, --help      Display this help message and exit\n"
@@ -568,7 +599,6 @@ int main(int argc, char **argv)
 {
   struct context_1789 ctx = {};
   struct context_1789 *cp = &ctx;
-  int decode_enabled = 0;
   int i = 1;
 
   ctx.err = err_1789;
@@ -586,7 +616,7 @@ int main(int argc, char **argv)
         return 0;
       }
       if (strcmp(argv[i], "-d") == 0) {
-        decode_enabled = 1;
+        ctx.is_decoding = 1;
         i++;
         continue;
       }
@@ -594,7 +624,7 @@ int main(int argc, char **argv)
         if ((argc >= (i + 2))) {
           if (sscanf(argv[i + 1], "%c", &ctx.charset_a[0]) == 1) {
             i += 2;
-	    continue;
+            continue;
           }
         }
       }
@@ -602,7 +632,15 @@ int main(int argc, char **argv)
         if ((argc >= (i + 2))) {
           if (sscanf(argv[i + 1], "%c", &ctx.charset_b[0]) == 1) {
             i += 2;
-	    continue;
+            continue;
+          }
+        }
+      }
+      if (strcmp(argv[i], "-c") == 0) {
+        if ((argc >= (i + 2))) {
+          if (sscanf(argv[i + 1], "%u", &ctx.line_wrap) == 1) {
+            i += 2;
+            continue;
           }
         }
       }
@@ -627,7 +665,22 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  return encode_or_decode(cp, decode_enabled);
+  /* in case line wrap is on, check charset parameters against white space */
+  if (ctx.line_wrap) {
+    for (i = 0; i < strlen(whitespace_chars); i++) {
+      if (__strchr(&ctx.charset_a[1], whitespace_chars[i]) != 0) {
+        ERROR(cp, err_invalid_parameter);
+        return 1;
+      }
+
+      if (__strchr(&ctx.charset_b[1], whitespace_chars[i]) != 0) {
+        ERROR(cp, err_invalid_parameter);
+        return 1;
+      }
+    }
+  }
+
+  return encode_or_decode(cp);
 }
 
 #endif /* __STANDALONE__ */
