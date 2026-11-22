@@ -429,23 +429,19 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   if (len == 0)
     return 0;
 
+  /* always omit white space characters when decoding */
   c = 0;
-  /* skip through any white space characters when decoding */
-  if (ctx->line_wrap) {
-    n = 0;
-    for (m = 0; m < len; m++) {
-      if (n < OUTPUT_BUFSIZE) {
-        if (__strchr(whitespace_chars, buf[m]) == 0) {
-          buf_lacking_space[n++] = buf[m];
-        } else {
-          c++;
-        }
+  n = 0;
+  for (m = 0; m < len; m++) {
+    if (n < OUTPUT_BUFSIZE) {
+      if (__strchr(whitespace_chars, buf[m]) == 0) {
+        buf_lacking_space[n++] = buf[m];
+      } else {
+        c++;
       }
     }
-    src = &buf_lacking_space[0];
-  } else {
-    src = buf;
   }
+  src = &buf_lacking_space[0];
 
   /* check for "$" */
   if (src[0] != special_chars[0]) {
