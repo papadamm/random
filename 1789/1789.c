@@ -453,7 +453,9 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return -1;
   }
 
-  if (src[1] != ctx->charset_a[0]) {
+  if (valid_charset53(ctx, src[1])) {
+    ctx->charset_a[0] = src[1];
+  } else {
     ERROR(ctx, err_decode_char);
     return -1;
   }
@@ -464,7 +466,9 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return -1;
   }
 
-  if (src[17] != ctx->charset_b[0]) {
+  if (valid_charset53(ctx, src[17])) {
+    ctx->charset_b[0] = src[17];
+  } else {
     ERROR(ctx, err_decode_char);
     return -1;
   }
@@ -618,7 +622,7 @@ static void print_help(const char *prog_name)
   "    cat payload.bin | %s -a '$' -b '#' > encoded.1789\n"
   "\n"
   "  Decode:\n"
-  "    cat encoded.1789 | %s -d -a '$' -b '#' > out.bin\n"
+  "    cat encoded.1789 | %s -d > out.bin\n"
   "\n"
   "Exit Status:\n"
   "  0   Success\n"
@@ -680,13 +684,15 @@ int main(int argc, char **argv)
     break;
   }
 
-  /* the charset parameters -a and -b are mandatory */
-  /* also only certain characters are valid */
-  if ((ctx.charset_a[0] == '\0') || (ctx.charset_b[0] == '\0')
-      || !valid_charset53(cp, ctx.charset_a[0])
-      || !valid_charset53(cp, ctx.charset_b[0])) {
-    ERROR(cp, err_invalid_parameter);
-    return 1;
+  if (!ctx.is_decoding) {
+    /* when encoding the charset parameters -a and -b are */
+    /* mandatory, also only certain characters are valid */
+    if ((ctx.charset_a[0] == '\0') || (ctx.charset_b[0] == '\0')
+        || !valid_charset53(cp, ctx.charset_a[0])
+        || !valid_charset53(cp, ctx.charset_b[0])) {
+      ERROR(cp, err_invalid_parameter);
+      return 1;
+    }
   }
 
   return encode_or_decode(cp);
