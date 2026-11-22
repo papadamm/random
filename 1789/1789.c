@@ -156,6 +156,21 @@ static int write_data(struct context_1789 *ctx, uint8_t *buf, int bytes)
   return bytes;
 }
 
+static int valid_charset53(struct context_1789 *ctx, char ch)
+{
+  /* the charset parameter must not be part of the regular charset */
+  if (__strchr(&latin_charset[0], ch) != 0) {
+    return 0; /* invalid */
+  }
+
+  /* also check charset parameter against white space */
+  if (__strchr(&whitespace_chars[0], ch) != 0) {
+    return 0; /* invalid */
+  }
+
+  return 1;
+}
+
 #ifdef __BUILD_ENCODER__
 
 static uint8_t bigint_mul256_div53(uint8_t *limbs, int len)
@@ -666,29 +681,10 @@ int main(int argc, char **argv)
   }
 
   /* the charset parameters -a and -b are mandatory */
-  if ((ctx.charset_a[0] == '\0') || (ctx.charset_b[0] == '\0')) {
-    ERROR(cp, err_invalid_parameter);
-    return 1;
-  }
-
-  /* the charset parameters must not be part of the regular charset */
-  if (__strchr(&ctx.charset_a[1], ctx.charset_a[0]) != 0) {
-    ERROR(cp, err_invalid_parameter);
-    return 1;
-  }
-
-  if (__strchr(&ctx.charset_b[1], ctx.charset_b[0]) != 0) {
-    ERROR(cp, err_invalid_parameter);
-    return 1;
-  }
-
-  /* check charset parameters against white space */
-  if (__strchr(&whitespace_chars[0], ctx.charset_a[0]) != 0) {
-    ERROR(cp, err_invalid_parameter);
-    return 1;
-  }
-
-  if (__strchr(&whitespace_chars[0], ctx.charset_b[0]) != 0) {
+  /* also only certain characters are valid */
+  if ((ctx.charset_a[0] == '\0') || (ctx.charset_b[0] == '\0')
+      || !valid_charset53(cp, ctx.charset_a[0])
+      || !valid_charset53(cp, ctx.charset_b[0])) {
     ERROR(cp, err_invalid_parameter);
     return 1;
   }
