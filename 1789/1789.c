@@ -35,8 +35,8 @@ typedef enum { err_encode_1st_char, err_decode_ascii,
                err_buffer_failure, err_invalid_parameter } err_t;
 
 struct context_1789 {
-  char charset_a[53];
-  char charset_b[53];
+  char charset_a[54];
+  char charset_b[54];
   int has_encoded_data;
   int is_decoding;
   int line_wrap;
