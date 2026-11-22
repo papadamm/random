@@ -13,7 +13,7 @@
 #endif
 
 char charset_1536[] = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz#";
-char char_airgap = ' '; /* white space */
+char chars_airgap[] = " \t\r\n"; /* white space */
 
 #define INPUT_BUFSIZE 15 /* INPUT is up to 15 bytes of data per frame */
 #define OUTPUT_BUFSIZE 21 /* OUTPUT consists of 15 + 21 = 36 characters */
@@ -195,7 +195,7 @@ static int encode_unit_frame(void *handle, uint8_t *buf, int len)
       ERROR(ctx, err_encode_1st_char);
       return -1;
     }
-    output_tail(ctx, char_airgap, 0, rev, 7);
+    output_tail(ctx, chars_airgap[0], 0, rev, 7);
   } else {
     reverse_data(rev, rem, OUTPUT_UNIT_BUFSIZE, 6);
 
@@ -208,7 +208,7 @@ static int encode_unit_frame(void *handle, uint8_t *buf, int len)
     case 4: rev[0] |= (4 * 10); break;
     }
 
-    output_tail(ctx, char_airgap, encode_char(52), rev, 6);
+    output_tail(ctx, chars_airgap[0], encode_char(52), rev, 6);
   }
   return len;
 }
@@ -363,7 +363,7 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
     return 0;
 
   /* skip through airgap characters when decoding */
-  if (buf[0] == char_airgap) {
+  if (__strchr(chars_airgap, buf[0]) != 0) {
     return 1;
   }
 
