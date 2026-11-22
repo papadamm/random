@@ -684,16 +684,14 @@ int main(int argc, char **argv)
 
   /* in case line wrap is on, check charset parameters against white space */
   if (ctx.line_wrap) {
-    for (i = 0; i < strlen(whitespace_chars); i++) {
-      if (__strchr(&ctx.charset_a[1], whitespace_chars[i]) != 0) {
-        ERROR(cp, err_invalid_parameter);
-        return 1;
-      }
+    if (__strchr(&whitespace_chars[0], ctx.charset_a[0]) != 0) {
+      ERROR(cp, err_invalid_parameter);
+      return 1;
+    }
 
-      if (__strchr(&ctx.charset_b[1], whitespace_chars[i]) != 0) {
-        ERROR(cp, err_invalid_parameter);
-        return 1;
-      }
+    if (__strchr(&whitespace_chars[0], ctx.charset_b[0]) != 0) {
+      ERROR(cp, err_invalid_parameter);
+      return 1;
     }
   }
 
