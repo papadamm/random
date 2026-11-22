@@ -1,7 +1,9 @@
 # Random hacks
 - 1536 - 15 <-> 36 byte Base53 encoder/decoder tool
-- 1654 - Base16 and Base54 tool
+- 1654 - 1/2 <-> 2/3 byte Base16 and Base54 tool
+- 1789 - 8 <-> 19 byte encoder/decoder tool
 - 51kt313t001 - Radio configuration utility
+- aes-test-na4 - Build na4 code to validate AES256 implementation against FIPS 197 
 - dtmf-buzzer-ch32v003 - DTMF tone generator with Delta-Sigma software DAC in RISC-V assembly
 - na4 - Base77 tool with checksum and encryption support (CRC4, SHA256, AES-CTR)
 - objdump-vintage-msdos-com - Make use of objdump to disassemble vintage MSDOS dot COM files
