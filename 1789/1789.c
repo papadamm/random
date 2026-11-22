@@ -682,17 +682,15 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  /* in case line wrap is on, check charset parameters against white space */
-  if (ctx.line_wrap) {
-    if (__strchr(&whitespace_chars[0], ctx.charset_a[0]) != 0) {
-      ERROR(cp, err_invalid_parameter);
-      return 1;
-    }
+  /* check charset parameters against white space */
+  if (__strchr(&whitespace_chars[0], ctx.charset_a[0]) != 0) {
+    ERROR(cp, err_invalid_parameter);
+    return 1;
+  }
 
-    if (__strchr(&whitespace_chars[0], ctx.charset_b[0]) != 0) {
-      ERROR(cp, err_invalid_parameter);
-      return 1;
-    }
+  if (__strchr(&whitespace_chars[0], ctx.charset_b[0]) != 0) {
+    ERROR(cp, err_invalid_parameter);
+    return 1;
   }
 
   return encode_or_decode(cp);
