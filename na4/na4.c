@@ -87,9 +87,11 @@
 /* - read_data() is not exactly easy to read. read_secret() is.              */
 /* - Add test cases for the various command line options                     */
 
+#ifndef __STANDALONE__
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#endif
 
 #define KDF_ITERATIONS 100000
 
@@ -1525,6 +1527,8 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
   }
 }
 
+#ifndef __STANDALONE__
+
 int na4_setup_secret(struct na4_context *ctx,
                      int decode_enabled,
                      int secret_bytes)
@@ -1735,3 +1739,5 @@ int main(int argc, char **argv)
   }
   return na4_encode_or_decode(&na4_ctx, decode_enabled);
 }
+
+#endif /* __STANDALONE__ */
