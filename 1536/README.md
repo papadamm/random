@@ -27,6 +27,3 @@ uncle Leo, %
 ```
 Please note that the "%" character on the left is a prompt and on Mac OS X it is appended at the end in case CR/LF is missing, so the trailing % above is not produced by 1536 but the terminal software.
 
-# TODO
-
-It might be handy to skip all sorts of white space during decoding.
