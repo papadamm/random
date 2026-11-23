@@ -556,9 +556,16 @@ static int decode_frame_custom(void *handle,
     if (ret == 0) {
       if (decode_tail_custom) {
 	ret = decode_tail_custom(ctx, buf[0], buf[1], &offs, &expected_size);
-      }
-      if (ret == 1) {
-	is_custom_tail = buf[0]; /* yes, it matched the custom tail decoder */
+	switch (ret) {
+	case 1: /* yes, it matched the custom tail decoder */
+          is_custom_tail = buf[0];
+          break;
+	case 0:
+          ERROR(ctx, err_unsupported_tail);
+          /* fall-through */
+	default: /* decode_tail_custom reported error already */
+          return -1;
+	}
       }
     }
   }
