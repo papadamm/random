@@ -1503,15 +1503,18 @@ static void aes256_encrypt_block(const AES_CTX *ctx,
   out[15] = aes_sbox[state[11]] ^ rk[15];
 }
 
-static void aes_ctr_process_frame(uint8_t *data, size_t len,
-                                  CTR_CTX *ctr, const AES_CTX *aes_ctx)
+static void __aes_ctr_process_frame(uint8_t *data, size_t len,
+                                    CTR_CTX *ctr, const AES_CTX *aes_ctx,
+                                    void (*encrypt_block)(const AES_CTX *ctx,
+                                                          const uint8_t in[16],
+                                                          uint8_t out[16]))
 {
   uint8_t keystream[16];
   size_t i, chunk;
 
   while (len > 0) {
     /* Generate 16 bytes of keystream by encrypting the current counter blk */
-    aes256_encrypt_block(aes_ctx, ctr->block, keystream);
+    encrypt_block(aes_ctx, ctr->block, keystream);
 
     /* XOR input buffer in-place */
     chunk = (len < 16) ? len : 16;
@@ -1525,6 +1528,12 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
     data += chunk;
     len -= chunk;
   }
+}
+
+static void aes_ctr_process_frame(uint8_t *data, size_t len,
+                                  CTR_CTX *ctr, const AES_CTX *aes_ctx)
+{
+  __aes_ctr_process_frame(data, len, ctr, aes_ctx, aes256_encrypt_block);
 }
 
 #ifndef __STANDALONE__
