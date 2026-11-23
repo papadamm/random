@@ -7,7 +7,7 @@
 The source code contains the following:
 ```console
 char charset_1536[] = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz#";
-char char_airgap = ' '; /* white space */
+char chars_airgap[] = " \t\r\n"; /* white space */
 ```
 Base53 in this case consists of the latin alphabet A-Z and a-z (both upper and lower case) as well as the pound sign as an additional special character. On top of this the space character is used to insert additional space.
 
