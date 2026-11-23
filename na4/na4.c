@@ -147,6 +147,7 @@ struct na4_context {
   CTR_CTX ctr_ctx;
   int signature_enabled;
   int encryption_enabled;
+  int crypto_magic_parsed;
   int crypto_header_parsed;
   int crypto_moshio_required;
   uint8_t crypto_moshio_data;
@@ -500,7 +501,8 @@ static int try_to_decode_top_tail_custom(struct na4_context *ctx,
     return 1;
   }
   if (tail1 == encode_char_top_64(6)) {
-    if (decode_char(tail2) != (20 - 3)) {
+    /* accept either 20 byte header or 8 byte magic */
+    if ((decode_char(tail2) != (20 - 3)) && (decode_char(tail2) != (8 - 3))) {
       ERROR(ctx, err_tail_crypto_range);
       return -1;
     }
@@ -787,16 +789,19 @@ static void hmac_final(uint8_t digest[SHA256_DIGEST_SIZE], HMAC_CTX *ctx)
   sha256_final(digest, &ctx->outer_ctx);
 }
 
-/* AES encoder implementation (thanks Gemini) */
+/* AES encoder implementation (initial code by Gemini) */
 
 static void aes256_set_key(AES_CTX *ctx, const uint8_t key[32]);
 
-/* AES-CTR implementation (thanks Gemini) */
+/* AES-CTR implementation (initial code by Gemini) */
 
 static void ctr_init(CTR_CTX *state, const uint8_t nonce[12]);
 static void aes_ctr_process_frame(uint8_t *data, size_t len,
                                   CTR_CTX *ctr,
                                   const AES_CTX *aes_ctx);
+static void aes_ctr_process_frame_legacy(uint8_t *data, size_t len,
+                                         CTR_CTX *ctr,
+                                         const AES_CTX *aes_ctx);
 
 /* when encoding, store the signature */
 static int store_signature(void *handle, int total_bytes)
@@ -959,6 +964,10 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->encryption_enabled && !ctx->crypto_header_parsed) {
+    /* skip over magic */
+    if (ctx->crypto_magic_parsed) {
+      return res;
+    }
     ERROR(ctx, err_stream_not_encrypted);
     return  -1;
   }
@@ -972,8 +981,14 @@ static int decode_frame(void *handle, uint8_t *buf, int len)
   }
 
   if (ctx->encryption_enabled) {
-    aes_ctr_process_frame(frame_out, bytes_out,
-                          &ctx->ctr_ctx, &ctx->aes_ctx);
+    /* if the stream contains magic use improved AES-256 implementation */
+    if (ctx->crypto_magic_parsed) {
+      aes_ctr_process_frame(frame_out, bytes_out,
+                            &ctx->ctr_ctx, &ctx->aes_ctx);
+    } else { /* support decoding data from older versions of na4 */
+      aes_ctr_process_frame_legacy(frame_out, bytes_out,
+                                   &ctx->ctr_ctx, &ctx->aes_ctx);
+    }
   }
 
   /* simply skip over initial encrypted moshio data */
@@ -1209,8 +1224,21 @@ static int crypto_init_encoder_late(struct na4_context *ctx,
   kdf_expand_keys(ctx, keys, hdr->check_token, master_prk);
   memset(master_prk, 0, sizeof(master_prk));
 
-  /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) as Frame 0 */
-  encode_frame_custom((void *)ctx, (void *)hdr, 20, encode_char_top_64(6));
+  /* Generate both 'magic' and 'hdr' frames to always include version data */
+  /* in case 'magic' is missing we support decoding using old AES-256 code */
+  /* By default emit 'magic' to tell the decoder to use updated AES-256 code */
+
+  /* (in recent na4 versions encode_char_top_64(6) has two meanings) */
+  /* (the 8-byte magic tail frame comes first, followed by 20-byte hdr data) */
+  /* (in older na4 versions encode_char_top_64(6) only indicates hdr data) */
+  /* (when sending encoded data from a recent na4 to decode on legacy na4, ) */
+  /* (this short first frame will trigger a graceful err_tail_crypto_range) */
+
+  /* Start by emitting `magic` (8 char byte magic) as Frame 0 */
+  encode_frame_custom(ctx, (void *)"na4 v0\n", 8, encode_char_top_64(6));
+
+  /* Emit `hdr` (20 bytes: 12 bytes salt + 8 bytes token) */
+  encode_frame_custom(ctx, (void *)hdr, 20, encode_char_top_64(6));
   return 0;
 }
 
@@ -1317,6 +1345,16 @@ static int process_frame_decrypt_late(void *handle, uint8_t *buf, int len)
   int ret = -1;
 
   if (!ctx->crypto_header_parsed) {
+    /* Frame 0 is either magic or header */
+    if ((len == 8) && !ctx->crypto_magic_parsed) {
+      /* Check magic */
+      if (memcmp(buf, "na4 v0\n", 8) == 0) {
+        ctx->crypto_magic_parsed = 1;
+        return 0;
+      } else {
+        return -1;
+      }
+    }
     memcpy(&crypto_hdr, buf, len);
     ret = crypto_init_decoder(ctx, &crypto_hdr, &crypto_keys);
 
@@ -1439,8 +1477,85 @@ static void aes256_set_key(AES_CTX *ctx, const uint8_t key[32])
 }
 
 /* Encrypts one 16-byte block from `in` to `out` */
+/* This implementation is known to generate output matching FIPS 197 */
+/* See the "aes-test-na4" code in the github random repo for details */
+/* Many thanks for feedback and initial investigation to zizzo81 */
 static void aes256_encrypt_block(const AES_CTX *ctx,
                                  const uint8_t in[16], uint8_t out[16])
+{
+  uint8_t state[16];
+  const uint8_t *rk = ctx->round_keys;
+  int round, i;
+
+  /* AddRoundKey (Round 0) */
+  for (i = 0; i < 16; i++) {
+      state[i] = in[i] ^ rk[i];
+  }
+  rk += 16;
+
+  /* Rounds 1 to 13 */
+  for (round = 1; round < AES256_ROUNDS; round++) {
+    uint8_t t[16];
+
+    /* First make a copy of state */
+    memcpy(&t[0], &state[0], 16);
+
+    /* SubBytes + ShiftRows using the copy */
+    state[0] = aes_sbox[t[0]];  state[1] = aes_sbox[t[5]];
+    state[2] = aes_sbox[t[10]]; state[3] = aes_sbox[t[15]];
+
+    state[4] = aes_sbox[t[4]];   state[5] = aes_sbox[t[9]];
+    state[6] = aes_sbox[t[14]];  state[7] = aes_sbox[t[3]];
+
+    state[8] = aes_sbox[t[8]];   state[9] = aes_sbox[t[13]];
+    state[10] = aes_sbox[t[2]];  state[11] = aes_sbox[t[7]];
+
+    state[12] = aes_sbox[t[12]]; state[13] = aes_sbox[t[1]];
+    state[14] = aes_sbox[t[6]];  state[15] = aes_sbox[t[11]];
+
+    /* MixColumns + AddRoundKey */
+    for (i = 0; i < 16; i += 4) {
+      uint8_t a0 = state[i], a1 = state[i + 1], a2 = state[i + 2], a3 = state[i + 3];
+      uint8_t h0 = xtime(a0 ^ a1);
+      uint8_t h1 = xtime(a1 ^ a2);
+      uint8_t h2 = xtime(a2 ^ a3);
+      uint8_t h3 = xtime(a3 ^ a0);
+      uint8_t all = a0 ^ a1 ^ a2 ^ a3;
+
+      state[i + 0] = a0 ^ all ^ h0 ^ rk[i + 0];
+      state[i + 1] = a1 ^ all ^ h1 ^ rk[i + 1];
+      state[i + 2] = a2 ^ all ^ h2 ^ rk[i + 2];
+      state[i + 3] = a3 ^ all ^ h3 ^ rk[i + 3];
+    }
+    rk += 16;
+  }
+
+  /* Final Round (Round 14): SubBytes + ShiftRows + AddRoundKey (No MixColumns) */
+  out[0]  = aes_sbox[state[0]]  ^ rk[0];
+  out[1]  = aes_sbox[state[5]]  ^ rk[1];
+  out[2]  = aes_sbox[state[10]] ^ rk[2];
+  out[3]  = aes_sbox[state[15]] ^ rk[3];
+
+  out[4]  = aes_sbox[state[4]]  ^ rk[4];
+  out[5]  = aes_sbox[state[9]]  ^ rk[5];
+  out[6]  = aes_sbox[state[14]] ^ rk[6];
+  out[7]  = aes_sbox[state[3]]  ^ rk[7];
+
+  out[8]  = aes_sbox[state[8]]  ^ rk[8];
+  out[9]  = aes_sbox[state[13]] ^ rk[9];
+  out[10] = aes_sbox[state[2]]  ^ rk[10];
+  out[11] = aes_sbox[state[7]]  ^ rk[11];
+
+  out[12] = aes_sbox[state[12]] ^ rk[12];
+  out[13] = aes_sbox[state[1]]  ^ rk[13];
+  out[14] = aes_sbox[state[6]]  ^ rk[14];
+  out[15] = aes_sbox[state[11]] ^ rk[15];
+}
+
+/* Encrypts one 16-byte block from `in` to `out` */
+/* Generated by Gemini (perhaps a rainy day) not FIPS 197 compliant */
+static void aes256_encrypt_block_legacy(const AES_CTX *ctx,
+                                        const uint8_t in[16], uint8_t out[16])
 {
   uint8_t state[16];
   const uint8_t *rk = ctx->round_keys;
@@ -1541,6 +1656,12 @@ static void aes_ctr_process_frame(uint8_t *data, size_t len,
                                   CTR_CTX *ctr, const AES_CTX *aes_ctx)
 {
   __aes_ctr_process_frame(data, len, ctr, aes_ctx, aes256_encrypt_block);
+}
+
+static void aes_ctr_process_frame_legacy(uint8_t *data, size_t len,
+                                         CTR_CTX *ctr, const AES_CTX *aes_ctx)
+{
+  __aes_ctr_process_frame(data, len, ctr, aes_ctx, aes256_encrypt_block_legacy);
 }
 
 #ifndef __STANDALONE__
