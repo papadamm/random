@@ -10,6 +10,9 @@
 #include <stdint.h>
 #define __BUILD_ENCODER__
 #define __BUILD_DECODER__
+#define __INTERNAL_DIV_REM_53__
+#define __INTERNAL_MUL_53__
+#define __INTERNAL_DIV_REM_10__
 #endif
 
 char charset_1536[] = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz#";
@@ -128,20 +131,29 @@ static char encode_char(uint8_t value)
 
 #ifdef __BUILD_ENCODER__
 
+#ifdef __INTERNAL_DIV_REM_53__
+static void div_rem_53(uint16_t dividend,
+                       uint16_t *quotient, uint16_t *remainder)
+{
+  uint16_t divisor = 53;
+  *quotient = dividend / divisor;
+  *remainder = dividend % divisor;
+}
+#endif
+
 static uint8_t bigint_mul256_div53(uint8_t *limbs, int len)
 {
   uint8_t remainder = 0;
-  uint16_t current;
-  uint8_t divisor = 53;
+  uint16_t q, r;
   int i;
 
   /* Process from most-significant limb down to least-significant */
   for (i = (len - 1); i >= 0; i--) {
 
     /* Base is 256 (0x100) [multiply by 256 and divide by divisor] */
-    current = (remainder << 8) | limbs[i];
-    limbs[i] = (uint8_t)(current / divisor);
-    remainder = current % divisor;
+    div_rem_53((remainder << 8) | limbs[i], &q, &r);
+    limbs[i] = q;
+    remainder = r;
   }
 
   return remainder;
@@ -271,6 +283,13 @@ static int decode_char(int ch)
   return -1;
 }
 
+#ifdef __INTERNAL_MUL_53__
+static uint16_t mul_53(uint8_t x)
+{
+  return x * 53;
+}
+#endif
+
 static uint8_t bigint_mul53_div256(uint8_t *limbs, int len)
 {
   uint8_t carry = 0;
@@ -281,13 +300,23 @@ static uint8_t bigint_mul53_div256(uint8_t *limbs, int len)
   for (i = (len - 1); i >= 0; i--) {
 
     /* Base is 53 [multiply by 53 and divide by 256] */
-    current = (carry * 53) + limbs[i];
+    current = mul_53(carry) + limbs[i];
     limbs[i] = current >> 8;
     carry = current & 0xff;
   }
 
   return carry;
 }
+
+#ifdef __INTERNAL_DIV_REM_10__
+static void div_rem_10(uint16_t dividend,
+                       uint16_t *quotient, uint16_t *remainder)
+{
+  uint16_t divisor = 10;
+  *quotient = dividend / divisor;
+  *remainder = dividend % divisor;
+}
+#endif
 
 static int decode_unit_frame(void *handle,
                              uint8_t *dst, int dst_len,
@@ -298,6 +327,7 @@ static int decode_unit_frame(void *handle,
   uint8_t num[PROCESS_UNIT_BUFSIZE] = {};
   uint8_t chars[OUTPUT_UNIT_BUFSIZE] = {};
   uint8_t rev[OUTPUT_UNIT_BUFSIZE] = {};
+  uint16_t q, r;
   int i, n, s;
 
   /* convert ASCII encoded data to integers */
@@ -323,8 +353,10 @@ static int decode_unit_frame(void *handle,
       return -1;
     }
 
+    div_rem_10(chars[1], &q, &r);
+
     n = -1;
-    switch (chars[1] / 10) {
+    switch (q) {
     case 0: n = 0; break;
     case 1: n = 1; break;
     case 2: n = 2; break;
@@ -335,7 +367,7 @@ static int decode_unit_frame(void *handle,
       return -1;
     }
     /* strip away size encoding data */
-    chars[1] = chars[1] % 10;
+    chars[1] = r;
     reverse_data(rev, &chars[1], OUTPUT_UNIT_BUFSIZE, 6);
   }
 

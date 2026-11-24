@@ -51,7 +51,27 @@ static int __read_char(uint8_t *buf)
 #define __STANDALONE__
 //#define __BUILD_ENCODER__
 #define __BUILD_DECODER__
+#define __INTERNAL_DIV_REM_53__
+#define __INTERNAL_MUL_53__
+//#define __INTERNAL_DIV_REM_10__
 #define NULL (void *)0
+
+static void div_rem_10(uint16_t dividend,
+                       uint16_t *quotient, uint16_t *remainder)
+{
+  uint16_t res;
+  uint16_t left = dividend;
+  uint16_t divisor = 10;
+
+  res = 0;
+  while (left >= divisor) {
+    res++;
+    left -= divisor;
+  }
+
+  *quotient = res;
+  *remainder = left;
+}
 
 #include "../1536/1536.c"
 
