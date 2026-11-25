@@ -5,7 +5,9 @@
 /* Copyright (C) 2026 Magnus Damm                                            */
 /*                                                                           */
 /* Makes use of the following software components [known working revision]:  */
-/* - na4 (https://github.com/papadamm/random/) [commit b4a7b45]              */
+/* - na4 (https://github.com/papadamm/random/) [commit b4a7b45] (legacy AES) */
+/* - na4 (https://github.com/papadamm/random/) [commit 2bcd803]              */
+
 /*                                                                           */
 /* To test, compile and run this program and compare output with FIPS 197    */
 
