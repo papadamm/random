@@ -88,6 +88,8 @@
 /* - Add test cases for the various command line options                     */
 
 #ifndef __STANDALONE__
+#define __INTERNAL_DIV_REM_77__
+#define __INTERNAL_MUL_77__
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -164,21 +166,30 @@ struct na4_context {
 #define ERROR(c, m) c->err(c, m)
 #define WARNING(c, m) c->warn(c, m)
 
+#ifdef __INTERNAL_DIV_REM_77__
+static void div_rem_77(uint16_t dividend,
+                       uint16_t *quotient, uint16_t *remainder)
+{
+  uint16_t divisor = 77;
+  *quotient = dividend / divisor;
+  *remainder = dividend % divisor;
+}
+#endif
+
 /* encoding math broken out from BigInt prototype (thank you Gemini) */
 static uint8_t bigint_mul256_div77(uint8_t *limbs, int len)
 {
+  uint16_t q, r;
   uint8_t remainder = 0;
-  uint16_t current;
-  uint8_t divisor = 77;
   int i;
 
   // Process from most-significant limb down to least-significant
   for (i = (len - 1); i >= 0; i--) {
 
     // Base is 256 (0x100) [multiply by 256 and divide by divisor]
-    current = (remainder << 8) | limbs[i];
-    limbs[i] = (uint8_t)(current / divisor);
-    remainder = current % divisor;
+    div_rem_77((remainder << 8) | limbs[i], &q, &r);
+    limbs[i] = q;
+    remainder = r;
   }
 
   return remainder;
@@ -418,6 +429,13 @@ static int encode_frame_custom(void *handle,
   return len;
 }
 
+#ifdef __INTERNAL_MUL_77__
+static uint16_t mul_77(uint8_t x)
+{
+  return x * 77;
+}
+#endif
+
 /* decoding math, the reverse of the encoding processing */
 static uint8_t bigint_mul77_div256(uint8_t *limbs, int len)
 {
@@ -429,7 +447,7 @@ static uint8_t bigint_mul77_div256(uint8_t *limbs, int len)
   for (i = (len - 1); i >= 0; i--) {
 
     // Base is 77 [multiply by 77 and divide by 256]
-    current = (carry * 77) + limbs[i];
+    current = mul_77(carry) + limbs[i];
     limbs[i] = current >> 8;
     carry = current & 0xff;
   }

@@ -16,6 +16,8 @@
 #define ARRAY_SIZE(n) sizeof(n) / sizeof(n[0])
 
 #define __STANDALONE__
+#define __INTERNAL_DIV_REM_77__
+#define __INTERNAL_MUL_77__
 #include "../na4/na4.c"
 
 /* yes, the following functions are unused, silence the compiler */
