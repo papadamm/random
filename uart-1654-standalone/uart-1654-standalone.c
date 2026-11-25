@@ -48,8 +48,10 @@ static int __read_char(uint8_t *buf)
 }
 
 #define __STANDALONE__
-//#define __BUILD_ENCODER__
-#define __BUILD_DECODER__
+//#define __BUILD_ENCODER_16__
+//#define __BUILD_DECODER_16__
+//#define __BUILD_ENCODER_54__
+#define __BUILD_DECODER_54__
 #define NULL (void *)0
 static void err(const char *err_msg) { /* no error reporting */ }
 int read_bin(uint8_t *buf) { return __read_char(buf); }
@@ -63,10 +65,10 @@ int main(void)
   uart_setup();
 
   while (1) {
-#ifdef __BUILD_DECODER__
+#ifdef __BUILD_DECODER_54__
     decode_54(1, 1, NULL, NULL);
 #endif
-#ifdef __BUILD_ENCODER__
+#ifdef __BUILD_ENCODER_54__
     encode_54d(1);
 #endif
   }

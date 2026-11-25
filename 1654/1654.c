@@ -25,8 +25,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#define __BUILD_ENCODER__
-#define __BUILD_DECODER__
+#define __BUILD_ENCODER_16__
+#define __BUILD_DECODER_16__
+#define __BUILD_ENCODER_54__
+#define __BUILD_DECODER_54__
 static void err(const char *err_msg);
 static int read_bin(uint8_t *buf);
 static int write_char(uint8_t data);
@@ -51,7 +53,7 @@ static char *__strchr(const char *s, int c)
   return NULL;
 }
 
-#ifdef __BUILD_ENCODER__
+#ifdef __BUILD_ENCODER_16__
 
 char encode_lower_hex_char(uint8_t value)
 {
@@ -76,8 +78,8 @@ int encode_hex(char (*encode)(uint8_t))
   return 0;
 }
 
-#endif /* __BUILD_ENCODER__ */
-#ifdef __BUILD_DECODER__
+#endif /* __BUILD_ENCODER_16__ */
+#ifdef __BUILD_DECODER_16__
 
 static int decode_hex_char(int ch)
 {
@@ -128,7 +130,9 @@ int decode_hex(void)
   return 0;
 }
 
-#endif /* __BUILD_DECODER__ */
+#endif /* __BUILD_DECODER_16__ */
+
+#if defined(__BUILD_ENCODER_54__) || defined(__BUILD_DECODER_54__)
 
 static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 {
@@ -146,7 +150,9 @@ static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
   return !(cnt & 0x01);
 }
 
-#ifdef __BUILD_ENCODER__
+#endif /* defined(__BUILD_ENCODER_54__) || defined(__BUILD_DECODER_54__) */
+
+#ifdef __BUILD_ENCODER_54__
 
 /* generate an ASCII character using the case sensitive 54 character set */
 static char encode_54_char(uint8_t value)
@@ -248,8 +254,8 @@ int encode_54d(int allow_single)
   return 0;
 }
 
-#endif /* __BUILD_ENCODER__ */
-#ifdef __BUILD_DECODER__
+#endif /* __BUILD_ENCODER_54__ */
+#ifdef __BUILD_DECODER_54__
 
 static int decode_54_char(int ch)
 {
@@ -364,15 +370,20 @@ int main(int argc, char **argv)
   FILE *fp_usage = stdout;
 
   if (argc == 2) {
+#ifdef __BUILD_ENCODER_16__
     if (strcmp(argv[1], "encode-x16") == 0) {
       return encode_hex(encode_lower_hex_char);
     }
     if (strcmp(argv[1], "encode-X16") == 0) {
       return encode_hex(encode_upper_hex_char);
     }
+#endif
+#ifdef __BUILD_DECODER_16__
     if (strcmp(argv[1], "decode-xX16") == 0) {
       return decode_hex();
     }
+#endif
+#ifdef __BUILD_ENCODER_54__
     if (strcmp(argv[1], "encode-54s") == 0) {
       return encode_54s(NULL, NULL);
     }
@@ -382,6 +393,8 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "encode-54ds") == 0) {
       return encode_54d(1);
     }
+#endif
+#ifdef __BUILD_DECODER_54__
     if (strcmp(argv[1], "decode-54s") == 0) {
       return decode_54(1, 0, NULL, NULL);
     }
@@ -391,7 +404,7 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "decode-54ds") == 0) {
       return decode_54(1, 1, NULL, NULL);
     }
-
+#endif
     fprintf(stderr, "%s: missing command\n\n", argv[0]);
     fp_usage = stderr;
   }
@@ -401,15 +414,23 @@ int main(int argc, char **argv)
 
   fprintf(fp_usage, "usage: %s command\n", argv[0]);
   fprintf(fp_usage, "supported commands:\n");
+#ifdef __BUILD_ENCODER_16__
   fprintf(fp_usage, "  encode-x16 - encode lower case hex\n");
   fprintf(fp_usage, "  encode-X16 - encode upper case hex\n");
+#endif
+#ifdef __BUILD_DECODER_16__
   fprintf(fp_usage, "  decode-xX16 - decode case insensitive hex\n");
+#endif
+#ifdef __BUILD_ENCODER_54__
   fprintf(fp_usage, "  encode-54s - encode 54 single mode\n");
   fprintf(fp_usage, "  encode-54d - encode 54 dual mode\n");
   fprintf(fp_usage, "  encode-54ds - encode 54 dual and 54 single mode\n");
+#endif
+#ifdef __BUILD_DECODER_54__
   fprintf(fp_usage, "  decode-54s - decode 54 single mode\n");
   fprintf(fp_usage, "  decode-54d - decode 54 dual mode\n");
   fprintf(fp_usage, "  decode-54ds - decode 54 dual and 54 single mode\n");
+#endif
 }
 
 #endif /* __STANDALONE__ */
