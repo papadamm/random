@@ -6,7 +6,7 @@
 /*                                                                           */
 /* Requires the following software components [known working revision]:      */
 /* - Hayley (https://github.com/papadamm/hayley) [commit c4c16cd]            */
-/* - 1654 (https://github.com/papadamm/random/) [commit e175aed]             */
+/* - 1654 (https://github.com/papadamm/random/) [commit e8cbda4]             */
 /*                                                                           */
 /* List of target platforms and their known working toolchains:              */
 /* - Seeeduino Nano (Arduino Nano clone with FTDI chipset using atmega328p)  */
