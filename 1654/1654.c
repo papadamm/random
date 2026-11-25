@@ -29,6 +29,8 @@
 #define __BUILD_DECODER_16__
 #define __BUILD_ENCODER_54__
 #define __BUILD_DECODER_54__
+#define __INTERNAL_DIV_REM_54__
+#define __INTERNAL_MUL_54__
 static void err(const char *err_msg);
 static int read_bin(uint8_t *buf);
 static int write_char(uint8_t data);
@@ -154,6 +156,16 @@ static int calculate_54s_crc(uint8_t prev, uint8_t curr, uint8_t next)
 
 #ifdef __BUILD_ENCODER_54__
 
+#ifdef __INTERNAL_DIV_REM_54__
+static void div_rem_54(uint16_t dividend,
+                       uint16_t *quotient, uint16_t *remainder)
+{
+  uint16_t divisor = 54;
+  *quotient = dividend / divisor;
+  *remainder = dividend % divisor;
+}
+#endif
+
 /* generate an ASCII character using the case sensitive 54 character set */
 static char encode_54_char(uint8_t value)
 {
@@ -168,11 +180,13 @@ static uint8_t encode_54s_v1(uint8_t msv, int oob, int crc, int mode)
 
 static uint8_t encode_54s_byte(uint8_t byte, uint8_t v0, int oob)
 {
+  uint16_t q, r;
   uint8_t msv, v1, v2;
   int crc;
 
-  v2 = byte % 54;
-  msv = byte / 54;
+  div_rem_54(byte, &q, &r);
+  v2 = r;
+  msv = q;
 
   v1 = encode_54s_v1(msv, oob, 0, 0); /* mode = 0, two char single mode */
   crc = calculate_54s_crc(v0, v1, v2);
@@ -214,7 +228,7 @@ int encode_54d(int allow_single)
   uint8_t buf[1];
   int char_nr = 0;
   int prev_data = 0;
-  uint16_t tmp16, tmp;
+  uint16_t tmp, q, r;
   uint8_t msv, v1, v2, v3;
   uint8_t v0 = 0;
 
@@ -223,12 +237,13 @@ int encode_54d(int allow_single)
       prev_data = buf[0];
     } else {
 
-      tmp16 = (prev_data << 8) | buf[0];
+      div_rem_54((prev_data << 8) | buf[0], &q, &r);
+      v3 = r;
+      tmp = q;
 
-      v3 = tmp16 % 54;
-      tmp = tmp16 / 54;
-      v2 = tmp % 54;
-      msv = tmp / 54;
+      div_rem_54(tmp, &q, &r);
+      v2 = r;
+      msv = q;
 
       v1 = encode_54d_v1(msv, 0, 0, 1); /* mode = 1, three char dual mode */
 
@@ -256,6 +271,13 @@ int encode_54d(int allow_single)
 
 #endif /* __BUILD_ENCODER_54__ */
 #ifdef __BUILD_DECODER_54__
+
+#ifdef __INTERNAL_MUL_54__
+static uint16_t mul_54(uint8_t x)
+{
+  return x * 54;
+}
+#endif
 
 static int decode_54_char(int ch)
 {
@@ -308,7 +330,7 @@ int decode_54(int allow_single, int allow_dual,
           }
 
           /* most significant value is stored in the first character */
-          write_bin(((v1 >> 3) * 54) + v2);
+          write_bin(mul_54(v1 >> 3) + v2);
           v0 = v2;
         } else {
           err("unable to decode second 54 character");
@@ -329,7 +351,7 @@ int decode_54(int allow_single, int allow_dual,
           return 1;
         }
 
-        tmp16 = ((v1 >> 1) * 54 * 54) + (v2 * 54) + v3;
+        tmp16 = (mul_54(mul_54(v1 >> 1))) + mul_54(v2) + v3;
         write_bin(tmp16 >> 8);
         write_bin(tmp16 & 0xff);
         char_nr = 0;
